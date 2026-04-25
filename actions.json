@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "workingDirectory": ".",
+  "actions": [
+    {
+      "id": "configure-debug",
+      "label": "Configure Debug",
+      "description": "Configure the debug build directory from CMake presets.",
+      "command": "cmake",
+      "args": ["--preset", "debug"],
+      "outputs": ["build/debug"]
+    },
+    {
+      "id": "compile-debug",
+      "label": "Compile Debug",
+      "description": "Build the debug preset. Run configure first if needed.",
+      "command": "cmake",
+      "args": ["--build", "--preset", "debug"],
+      "dependsOn": ["configure-debug"],
+      "outputs": ["build/debug/Debug/samgame.exe", "build/debug/Debug/samgame_tests.exe"]
+    },
+    {
+      "id": "clean-compile-debug",
+      "label": "Clean Compile Debug",
+      "description": "Freshly configure and rebuild the debug preset.",
+      "command": "cmake",
+      "args": ["--fresh", "--preset", "debug"],
+      "then": [
+        {
+          "command": "cmake",
+          "args": ["--build", "--preset", "debug"]
+        }
+      ],
+      "outputs": ["build/debug/Debug/samgame.exe", "build/debug/Debug/samgame_tests.exe"]
+    },
+    {
+      "id": "run-tests",
+      "label": "Run Tests",
+      "description": "Build and run the CTest suite with failure output.",
+      "command": "ctest",
+      "args": ["--preset", "debug"],
+      "dependsOn": ["compile-debug"]
+    },
+    {
+      "id": "run-app",
+      "label": "Run App",
+      "description": "Run the built raylib application.",
+      "command": ".\\build\\debug\\Debug\\samgame.exe",
+      "dependsOn": ["compile-debug"]
+    },
+    {
+      "id": "debug-app",
+      "label": "Debug App",
+      "description": "Build before launching the app under the VS Code C++ debugger.",
+      "debugger": "cppvsdbg",
+      "program": "${workspaceFolder}\\build\\debug\\Debug\\samgame.exe",
+      "cwd": "${workspaceFolder}",
+      "dependsOn": ["compile-debug"]
+    }
+  ]
+}
