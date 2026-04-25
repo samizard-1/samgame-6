@@ -13,7 +13,7 @@ A minimal C17 raylib starter scaffold with a raylib-free `game_core` library, a 
 ```powershell
 cmake --preset debug
 cmake --build --preset debug
-ctest --test-dir build/debug --output-on-failure
+ctest --test-dir build/debug -C Debug --output-on-failure
 .\build\debug\Debug\samgame.exe
 ```
 
@@ -57,23 +57,3 @@ raylib is acquired with CMake `FetchContent` only and pinned to release `5.5`. T
 This starter keeps the official example's first-person camera feel, static scene room/ground, cursor capture, jumping, and generated columns. The playable area is enclosed by four blocking walls and a roof so the player cannot leave the room through the sides or top.
 
 World dimensions live in `src/game_core/world_config.h`. Use that file for room bounds, wall thickness, roof height, roof thickness, column height/radius, and player collision radius so generation, rendering, collision, tests, and documentation stay aligned.
-
-## VS Code
-
-This repo includes a ready-to-use `.vscode/` setup that calls `cmake`/`ctest` directly.
-
-Keyboard-friendly workflow:
-
-- `Ctrl+Shift+B` → configure + build
-- `F5` → build + run with debugger
-- `Ctrl+F5` → build + run without debugger
-
-There is also a default test task:
-
-- `Terminal: Run Test Task` → configure + build + run `ctest`
-
-Clean rebuild:
-
-- `Tasks: Run Task` → `Clean Rebuild (debug)`
-
-These tasks rely on `cmake` and `ctest` being on `PATH`. On Windows, the preset uses the Visual Studio generator so normal VS Code launches and `F5` work without needing a separate Developer shell.

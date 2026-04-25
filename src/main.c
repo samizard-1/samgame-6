@@ -8,11 +8,22 @@
 #include <stddef.h>
 #include <time.h>
 
+typedef struct app_state {
+    Camera camera;
+    int camera_mode;
+    player_motion_state player_motion;
+    world_column columns[STARTUP_DEFAULT_COLUMN_COUNT];
+    world_layout_bounds bounds;
+    unsigned int world_seed;
+} app_state;
+
 static Camera CreateStartupCamera(void)
 {
     Camera camera = { 0 };
-    camera.position = (Vector3){ 0.0f, 2.0f, 4.0f };
-    camera.target = (Vector3){ 0.0f, 2.0f, 0.0f };
+    const float eye_y = player_motion_default_eye_height();
+
+    camera.position = (Vector3){ 0.0f, eye_y, 4.0f };
+    camera.target = (Vector3){ 0.0f, eye_y, 0.0f };
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
     camera.fovy = 60.0f;
     camera.projection = CAMERA_PERSPECTIVE;
@@ -47,9 +58,9 @@ static void DrawGeneratedColumns(const world_column *columns, size_t count)
     }
 }
 
-static void DrawRoom(const world_gen_bounds *bounds)
+static void DrawRoom(const world_layout_bounds *bounds)
 {
-    const float wall_height = world_gen_default_roof_y();
+    const float wall_height = world_layout_default_roof_y();
     const float wall_center_y = wall_height * 0.5f;
     const float width = (bounds->max_x - bounds->min_x) + (bounds->radius * 2.0f);
     const float depth = (bounds->max_z - bounds->min_z) + (bounds->radius * 2.0f);
@@ -83,76 +94,93 @@ static void DrawHud(const Camera *camera, unsigned int worldSeed)
     DrawText("Projection: PERSPECTIVE", 575, 80, 10, BLACK);
 }
 
+static app_state CreateAppState(void)
+{
+    app_state state = { 0 };
+
+    state.camera = CreateStartupCamera();
+    state.camera_mode = CAMERA_FIRST_PERSON;
+    state.player_motion = player_motion_create();
+    state.bounds = world_layout_default_bounds();
+    state.world_seed = (unsigned int)time(NULL);
+
+    world_gen_generate(state.world_seed, STARTUP_DEFAULT_COLUMN_COUNT, state.columns);
+
+    return state;
+}
+
+static void UpdateAppState(app_state *state)
+{
+    const Vector3 previousCameraPosition = state->camera.position;
+
+    UpdateCamera(&state->camera, state->camera_mode);
+
+    if (IsKeyPressed(KEY_SPACE)) {
+        player_motion_request_jump(&state->player_motion);
+    }
+
+    player_motion_update_with_ceiling(&state->player_motion, GetFrameTime(), world_layout_default_roof_y());
+
+    if (state->camera.position.y != state->player_motion.eye_y) {
+        const float correctionY = state->player_motion.eye_y - state->camera.position.y;
+
+        state->camera.position.y = state->player_motion.eye_y;
+        state->camera.target.y += correctionY;
+    }
+
+    if (state->camera.position.x != previousCameraPosition.x || state->camera.position.z != previousCameraPosition.z)
+    {
+        const world_collision_walls collisionWalls = world_collision_default_walls();
+        const float playerRadius = world_collision_player_radius();
+        float resolvedX = state->camera.position.x;
+        float resolvedZ = state->camera.position.z;
+
+        world_collision_resolve_player_xz(
+            &collisionWalls,
+            state->columns,
+            STARTUP_DEFAULT_COLUMN_COUNT,
+            playerRadius,
+            &resolvedX,
+            &resolvedZ
+        );
+
+        const float correctionX = resolvedX - state->camera.position.x;
+        const float correctionZ = resolvedZ - state->camera.position.z;
+
+        state->camera.position.x = resolvedX;
+        state->camera.position.z = resolvedZ;
+        state->camera.target.x += correctionX;
+        state->camera.target.z += correctionZ;
+    }
+}
+
+static void DrawAppState(const app_state *state)
+{
+    BeginDrawing();
+    ClearBackground(RAYWHITE);
+
+    BeginMode3D(state->camera);
+    DrawRoom(&state->bounds);
+    DrawGeneratedColumns(state->columns, STARTUP_DEFAULT_COLUMN_COUNT);
+    EndMode3D();
+
+    DrawHud(&state->camera, state->world_seed);
+    EndDrawing();
+}
+
 int main(void)
 {
     InitWindow(STARTUP_SCREEN_WIDTH, STARTUP_SCREEN_HEIGHT, "samgame - raylib first person starter");
 
-    Camera camera = CreateStartupCamera();
-    int cameraMode = CAMERA_FIRST_PERSON;
-    player_motion_state playerMotion = player_motion_create();
-    world_column columns[STARTUP_DEFAULT_COLUMN_COUNT] = { 0 };
-    const world_gen_bounds bounds = world_gen_default_bounds();
-    const unsigned int worldSeed = (unsigned int)time(NULL);
-
-    world_gen_generate(worldSeed, STARTUP_DEFAULT_COLUMN_COUNT, columns);
+    app_state state = CreateAppState();
 
     DisableCursor();
-    SetTargetFPS(60);
+    SetTargetFPS(STARTUP_TARGET_FPS);
 
     while (!WindowShouldClose())
     {
-        const Vector3 previousCameraPosition = camera.position;
-
-        UpdateCamera(&camera, cameraMode);
-
-        if (IsKeyPressed(KEY_SPACE)) {
-            player_motion_request_jump(&playerMotion);
-        }
-
-        player_motion_update_with_ceiling(&playerMotion, GetFrameTime(), world_gen_default_roof_y());
-
-        if (camera.position.y != playerMotion.eye_y) {
-            const float correctionY = playerMotion.eye_y - camera.position.y;
-
-            camera.position.y = playerMotion.eye_y;
-            camera.target.y += correctionY;
-        }
-
-        if (camera.position.x != previousCameraPosition.x || camera.position.z != previousCameraPosition.z)
-        {
-            const world_collision_walls collisionWalls = world_gen_default_collision_walls();
-            const float playerRadius = world_gen_player_collision_radius();
-            float resolvedX = camera.position.x;
-            float resolvedZ = camera.position.z;
-
-            world_gen_resolve_player_xz(
-                &collisionWalls,
-                columns,
-                STARTUP_DEFAULT_COLUMN_COUNT,
-                playerRadius,
-                &resolvedX,
-                &resolvedZ
-            );
-
-            const float correctionX = resolvedX - camera.position.x;
-            const float correctionZ = resolvedZ - camera.position.z;
-
-            camera.position.x = resolvedX;
-            camera.position.z = resolvedZ;
-            camera.target.x += correctionX;
-            camera.target.z += correctionZ;
-        }
-
-        BeginDrawing();
-        ClearBackground(RAYWHITE);
-
-        BeginMode3D(camera);
-        DrawRoom(&bounds);
-        DrawGeneratedColumns(columns, STARTUP_DEFAULT_COLUMN_COUNT);
-        EndMode3D();
-
-        DrawHud(&camera, worldSeed);
-        EndDrawing();
+        UpdateAppState(&state);
+        DrawAppState(&state);
     }
 
     CloseWindow();

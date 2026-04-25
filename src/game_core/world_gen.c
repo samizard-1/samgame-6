@@ -37,10 +37,10 @@ static float world_gen_clamp(float value, float minimum, float maximum)
     return value;
 }
 
-static bool world_gen_resolve_player_walls(const world_collision_walls *walls,
-                                           float player_radius,
-                                           float *x,
-                                           float *z)
+static bool world_collision_resolve_player_walls(const world_collision_walls *walls,
+                                                 float player_radius,
+                                                 float *x,
+                                                 float *z)
 {
     bool changed = false;
 
@@ -67,10 +67,10 @@ static bool world_gen_resolve_player_walls(const world_collision_walls *walls,
     return changed;
 }
 
-static bool world_gen_resolve_player_column_xz(const world_column *column,
-                                               float player_radius,
-                                               float *x,
-                                               float *z)
+static bool world_collision_resolve_player_column_xz(const world_column *column,
+                                                     float player_radius,
+                                                     float *x,
+                                                     float *z)
 {
     const float column_min_x = column->x - column->radius;
     const float column_max_x = column->x + column->radius;
@@ -138,9 +138,9 @@ static bool world_gen_resolve_player_column_xz(const world_column *column,
     }
 }
 
-world_gen_bounds world_gen_default_bounds(void)
+world_layout_bounds world_layout_default_bounds(void)
 {
-    world_gen_bounds bounds;
+    world_layout_bounds bounds;
 
     bounds.min_x = WORLD_ROOM_MIN_X;
     bounds.max_x = WORLD_ROOM_MAX_X;
@@ -153,19 +153,19 @@ world_gen_bounds world_gen_default_bounds(void)
     return bounds;
 }
 
-float world_gen_player_collision_radius(void)
+float world_collision_player_radius(void)
 {
     return WORLD_PLAYER_COLLISION_RADIUS;
 }
 
-float world_gen_default_roof_y(void)
+float world_layout_default_roof_y(void)
 {
     return WORLD_ROOF_UNDERSIDE_Y;
 }
 
-world_collision_walls world_gen_default_collision_walls(void)
+world_collision_walls world_collision_default_walls(void)
 {
-    const world_gen_bounds bounds = world_gen_default_bounds();
+    const world_layout_bounds bounds = world_layout_default_bounds();
     const float half_wall_thickness = WORLD_WALL_THICKNESS * 0.5f;
     world_collision_walls walls;
 
@@ -183,7 +183,7 @@ world_collision_walls world_gen_default_collision_walls(void)
 
 void world_gen_generate(unsigned int seed, size_t count, world_column *out_columns)
 {
-    world_gen_bounds bounds;
+    world_layout_bounds bounds;
     unsigned int state;
     size_t index;
 
@@ -191,7 +191,7 @@ void world_gen_generate(unsigned int seed, size_t count, world_column *out_colum
         return;
     }
 
-    bounds = world_gen_default_bounds();
+    bounds = world_layout_default_bounds();
     state = seed;
 
     for (index = 0; index < count; ++index) {
@@ -202,12 +202,12 @@ void world_gen_generate(unsigned int seed, size_t count, world_column *out_colum
     }
 }
 
-void world_gen_resolve_player_xz(const world_collision_walls *walls,
-                                 const world_column *columns,
-                                 size_t column_count,
-                                 float player_radius,
-                                 float *x,
-                                 float *z)
+void world_collision_resolve_player_xz(const world_collision_walls *walls,
+                                       const world_column *columns,
+                                       size_t column_count,
+                                       float player_radius,
+                                       float *x,
+                                       float *z)
 {
     world_collision_walls default_walls;
     const world_collision_walls *active_walls = walls;
@@ -223,7 +223,7 @@ void world_gen_resolve_player_xz(const world_collision_walls *walls,
     }
 
     if (active_walls == NULL) {
-        default_walls = world_gen_default_collision_walls();
+        default_walls = world_collision_default_walls();
         active_walls = &default_walls;
     }
 
@@ -237,11 +237,11 @@ void world_gen_resolve_player_xz(const world_collision_walls *walls,
         bool changed = false;
         size_t column_index;
 
-        changed = world_gen_resolve_player_walls(active_walls, player_radius, x, z) || changed;
+        changed = world_collision_resolve_player_walls(active_walls, player_radius, x, z) || changed;
 
         if (columns != NULL) {
             for (column_index = 0; column_index < column_count; ++column_index) {
-                changed = world_gen_resolve_player_column_xz(&columns[column_index], player_radius, x, z) || changed;
+                changed = world_collision_resolve_player_column_xz(&columns[column_index], player_radius, x, z) || changed;
             }
         }
 
@@ -250,5 +250,5 @@ void world_gen_resolve_player_xz(const world_collision_walls *walls,
         }
     }
 
-    world_gen_resolve_player_walls(active_walls, player_radius, x, z);
+    world_collision_resolve_player_walls(active_walls, player_radius, x, z);
 }
