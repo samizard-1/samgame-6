@@ -12,9 +12,9 @@ typedef struct player_motion_state {
 float player_motion_default_eye_height(void);
 player_motion_state player_motion_create(void);
 void player_motion_request_jump(player_motion_state *state);
-void player_motion_update(player_motion_state *state, float delta_seconds);
-void player_motion_update_with_ceiling(player_motion_state *state,
-                                       float delta_seconds,
-                                       float ceiling_y);
+void player_motion_update(player_motion_state *state,
+                          float delta_seconds,
+                          float support_eye_y,
+                          float ceiling_y);
 
 #endif

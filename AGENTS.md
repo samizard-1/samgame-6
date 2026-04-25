@@ -18,6 +18,9 @@ entire project unless a deeper `AGENTS.md` overrides it.
 - `src/main.c` owns raylib setup, rendering, input/camera integration, and HUD
   drawing.
 - `src/game_core/` owns raylib-free gameplay logic and configuration.
+- Climbable geometry in `game_core` is represented as generic top surfaces with
+  X/Z footprints. Pillars are one source of those surfaces, not the only future
+  climbable geometry type.
 - `tests/` owns headless regression tests and should link only against
   `game_core`.
 - `assets/` is reserved for runtime assets.
@@ -28,6 +31,10 @@ entire project unless a deeper `AGENTS.md` overrides it.
 
 - Use C17 only. C extensions are disabled by CMake.
 - Do not introduce new dependencies unless the user explicitly asks.
+- No backwards compatibility is required for internal interfaces. When changing
+  behavior, re-engineer APIs around the new model instead of preserving old
+  wrappers, legacy call patterns, or compatibility shims just to keep diffs
+  smaller.
 - Keep `game_core` free of raylib includes and raylib types so tests remain
   headless.
 - raylib is fetched only through CMake `FetchContent`, pinned to release `5.5`.
@@ -37,6 +44,8 @@ entire project unless a deeper `AGENTS.md` overrides it.
   it:
   - world definition constants live in `src/game_core/world_config.h`,
   - default bounds are `[-15, 15]` on X/Z,
+  - pillar heights are discrete levels using `WORLD_PILLAR_LEVEL_HEIGHT`,
+  - default generation guarantees one upward jumpable pillar chain,
   - column radius is `1.0`,
   - player collision radius is `0.5`,
   - all four side walls are blocking,
@@ -51,7 +60,7 @@ Preferred Windows workflow:
 ```powershell
 cmake --preset debug
 cmake --build --preset debug
-ctest --test-dir build/debug --output-on-failure
+ctest --test-dir build/debug -C Debug --output-on-failure
 ```
 
 Run the app after building:
@@ -69,6 +78,8 @@ configuration pass; report the environment mismatch.
 - Prefer simple C functions, local structs, and explicit data flow over broad
   abstractions.
 - Keep gameplay logic in `game_core` when it can be tested without a window.
+- When adding new climbable objects, add or convert them into generic climbable
+  surfaces instead of teaching movement/support code about each geometry type.
 - Add or update tests when changing deterministic generation, startup constants,
   collision rules, or other gameplay behavior.
 - Use `assert`-style tests consistent with the existing test files.

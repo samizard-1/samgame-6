@@ -52,8 +52,26 @@ raylib is acquired with CMake `FetchContent` only and pinned to release `5.5`. T
     `-- test_world_gen.c
 ```
 
+## World Geometry
+
+`game_core` treats climbable geometry as top surfaces with X/Z footprints and a
+top height. Generated pillars are the first geometry source that contributes
+those surfaces, but the support and collision APIs are intentionally surface-
+based so future objects, such as moving boxes, can join the same path without
+making the player movement code pillar-specific.
+
+Pillars use discrete levels instead of arbitrary continuous heights. A level is
+`WORLD_PILLAR_LEVEL_HEIGHT` units tall, with level 1 reachable from the floor by
+the current jump and level 2 intentionally unreachable from the floor. The
+default generator always creates one upward chain of nearby pillars, then fills
+the remaining pillars using difficulty parameters that tune nearby placement,
+upward-step likelihood, and max extra level delta.
+
 ## Starter Scope
 
 This starter keeps the official example's first-person camera feel, static scene room/ground, cursor capture, jumping, and generated columns. The playable area is enclosed by four blocking walls and a roof so the player cannot leave the room through the sides or top.
 
-World dimensions live in `src/game_core/world_config.h`. Use that file for room bounds, wall thickness, roof height, roof thickness, column height/radius, and player collision radius so generation, rendering, collision, tests, and documentation stay aligned.
+World dimensions live in `src/game_core/world_config.h`. Use that file for room
+bounds, wall thickness, roof height, roof thickness, pillar level defaults,
+column radius, and player collision radius so generation, rendering, collision,
+tests, and documentation stay aligned.

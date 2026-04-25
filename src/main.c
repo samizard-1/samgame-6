@@ -112,6 +112,8 @@ static app_state CreateAppState(void)
 static void UpdateAppState(app_state *state)
 {
     const Vector3 previousCameraPosition = state->camera.position;
+    const float defaultEyeHeight = player_motion_default_eye_height();
+    const float playerRadius = world_collision_player_radius();
 
     UpdateCamera(&state->camera, state->camera_mode);
 
@@ -119,19 +121,10 @@ static void UpdateAppState(app_state *state)
         player_motion_request_jump(&state->player_motion);
     }
 
-    player_motion_update_with_ceiling(&state->player_motion, GetFrameTime(), world_layout_default_roof_y());
-
-    if (state->camera.position.y != state->player_motion.eye_y) {
-        const float correctionY = state->player_motion.eye_y - state->camera.position.y;
-
-        state->camera.position.y = state->player_motion.eye_y;
-        state->camera.target.y += correctionY;
-    }
-
     if (state->camera.position.x != previousCameraPosition.x || state->camera.position.z != previousCameraPosition.z)
     {
         const world_collision_walls collisionWalls = world_collision_default_walls();
-        const float playerRadius = world_collision_player_radius();
+        const float playerFeetY = state->player_motion.eye_y - defaultEyeHeight;
         float resolvedX = state->camera.position.x;
         float resolvedZ = state->camera.position.z;
 
@@ -140,6 +133,7 @@ static void UpdateAppState(app_state *state)
             state->columns,
             STARTUP_DEFAULT_COLUMN_COUNT,
             playerRadius,
+            playerFeetY,
             &resolvedX,
             &resolvedZ
         );
@@ -151,6 +145,29 @@ static void UpdateAppState(app_state *state)
         state->camera.position.z = resolvedZ;
         state->camera.target.x += correctionX;
         state->camera.target.z += correctionZ;
+    }
+
+    {
+        const float playerFeetY = state->player_motion.eye_y - defaultEyeHeight;
+        const float supportY = world_support_find_floor_y(state->columns,
+                                                          STARTUP_DEFAULT_COLUMN_COUNT,
+                                                          playerRadius,
+                                                          playerFeetY,
+                                                          state->camera.position.x,
+                                                          state->camera.position.z);
+        const float supportEyeY = supportY + defaultEyeHeight;
+
+        player_motion_update(&state->player_motion,
+                             GetFrameTime(),
+                             supportEyeY,
+                             world_layout_default_roof_y());
+    }
+
+    if (state->camera.position.y != state->player_motion.eye_y) {
+        const float correctionY = state->player_motion.eye_y - state->camera.position.y;
+
+        state->camera.position.y = state->player_motion.eye_y;
+        state->camera.target.y += correctionY;
     }
 }
 

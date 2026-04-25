@@ -32,23 +32,30 @@ void player_motion_request_jump(player_motion_state *state)
     state->grounded = false;
 }
 
-void player_motion_update(player_motion_state *state, float delta_seconds)
-{
-    player_motion_update_with_ceiling(state, delta_seconds, 0.0f);
-}
-
-void player_motion_update_with_ceiling(player_motion_state *state,
-                                       float delta_seconds,
-                                       float ceiling_y)
+void player_motion_update(player_motion_state *state,
+                          float delta_seconds,
+                          float support_eye_y,
+                          float ceiling_y)
 {
     if (state == NULL || delta_seconds <= 0.0f) {
         return;
     }
 
+    if (support_eye_y < PLAYER_MOTION_GROUND_EYE_Y) {
+        support_eye_y = PLAYER_MOTION_GROUND_EYE_Y;
+    }
+
     if (state->grounded) {
-        state->eye_y = PLAYER_MOTION_GROUND_EYE_Y;
+        if (state->eye_y <= support_eye_y) {
+            state->eye_y = support_eye_y;
+        } else {
+            state->grounded = false;
+        }
         state->velocity_y = 0.0f;
-        return;
+
+        if (state->grounded) {
+            return;
+        }
     }
 
     state->velocity_y -= PLAYER_MOTION_GRAVITY * delta_seconds;
@@ -62,8 +69,8 @@ void player_motion_update_with_ceiling(player_motion_state *state,
         }
     }
 
-    if (state->eye_y <= PLAYER_MOTION_GROUND_EYE_Y) {
-        state->eye_y = PLAYER_MOTION_GROUND_EYE_Y;
+    if (state->eye_y <= support_eye_y) {
+        state->eye_y = support_eye_y;
         state->velocity_y = 0.0f;
         state->grounded = true;
     }
