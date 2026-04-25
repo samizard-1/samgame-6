@@ -38,7 +38,7 @@
       "label": "Run Tests",
       "description": "Build and run the CTest suite with failure output.",
       "command": "ctest",
-      "args": ["--preset", "debug"],
+      "args": ["--test-dir", "build/debug", "-C", "Debug", "--output-on-failure"],
       "dependsOn": ["compile-debug"]
     },
     {

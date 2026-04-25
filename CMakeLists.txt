@@ -20,7 +20,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(raylib)
 
-add_library(game_core STATIC src/game_core/world_gen.c)
+add_library(
+  game_core STATIC
+  src/game_core/player_motion.c
+  src/game_core/world_gen.c
+)
 target_include_directories(
   game_core
   PUBLIC
@@ -35,6 +39,7 @@ set_target_properties(samgame PROPERTIES C_STANDARD 17 C_STANDARD_REQUIRED YES C
 
 add_executable(
   samgame_tests
+  tests/test_player_motion.c
   tests/test_startup_config.c
   tests/test_world_gen.c
 )

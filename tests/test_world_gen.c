@@ -6,6 +6,7 @@
 #include "../src/game_core/world_gen.h"
 
 void test_startup_config(void);
+void test_player_motion(void);
 
 typedef struct seam_position {
     float x;
@@ -255,6 +256,7 @@ static void test_xz_resolution_leaves_y_unchanged(void)
 int main(void)
 {
     test_startup_config();
+    test_player_motion();
     test_generation_defaults_and_determinism();
     test_default_collision_walls();
     test_rendered_walls_push_candidates_back_inside();

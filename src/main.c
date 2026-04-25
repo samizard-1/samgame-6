@@ -1,5 +1,6 @@
 #include "raylib.h"
 
+#include "game_core/player_motion.h"
 #include "game_core/startup_config.h"
 #include "game_core/world_gen.h"
 
@@ -50,11 +51,11 @@ static void DrawHud(const Camera *camera, unsigned int worldSeed)
     DrawRectangle(8, 8, 340, 110, Fade(SKYBLUE, 0.45f));
     DrawRectangleLines(8, 8, 340, 110, BLUE);
     DrawText("Starter controls:", 18, 18, 10, BLACK);
-    DrawText("- Move: W, A, S, D, Space, Left Ctrl", 18, 35, 10, BLACK);
+    DrawText("- Move: W, A, S, D", 18, 35, 10, BLACK);
     DrawText("- Look: mouse or arrow keys", 18, 50, 10, BLACK);
-    DrawText("- ESC closes the app", 18, 65, 10, BLACK);
-    DrawText(TextFormat("- Seed: %u", worldSeed), 18, 80, 10, BLACK);
-    DrawText(TextFormat("- Columns: %d", STARTUP_DEFAULT_COLUMN_COUNT), 18, 95, 10, BLACK);
+    DrawText("- Jump: Space", 18, 65, 10, BLACK);
+    DrawText("- ESC closes the app", 18, 80, 10, BLACK);
+    DrawText(TextFormat("- Seed: %u", worldSeed), 18, 95, 10, BLACK);
 
     DrawRectangle(565, 8, 228, 95, Fade(SKYBLUE, 0.45f));
     DrawRectangleLines(565, 8, 228, 95, BLUE);
@@ -71,6 +72,7 @@ int main(void)
 
     Camera camera = CreateStartupCamera();
     int cameraMode = CAMERA_FIRST_PERSON;
+    player_motion_state playerMotion = player_motion_create();
     world_column columns[STARTUP_DEFAULT_COLUMN_COUNT] = { 0 };
     const world_gen_bounds bounds = world_gen_default_bounds();
     const unsigned int worldSeed = (unsigned int)time(NULL);
@@ -85,6 +87,19 @@ int main(void)
         const Vector3 previousCameraPosition = camera.position;
 
         UpdateCamera(&camera, cameraMode);
+
+        if (IsKeyPressed(KEY_SPACE)) {
+            player_motion_request_jump(&playerMotion);
+        }
+
+        player_motion_update(&playerMotion, GetFrameTime());
+
+        if (camera.position.y != playerMotion.eye_y) {
+            const float correctionY = playerMotion.eye_y - camera.position.y;
+
+            camera.position.y = playerMotion.eye_y;
+            camera.target.y += correctionY;
+        }
 
         if (camera.position.x != previousCameraPosition.x || camera.position.z != previousCameraPosition.z)
         {
