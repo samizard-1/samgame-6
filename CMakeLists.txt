@@ -23,7 +23,12 @@ FetchContent_MakeAvailable(raylib)
 add_library(
   game_core STATIC
   src/game_core/player_motion.c
+  src/game_core/world_column.c
+  src/game_core/world_collision.c
   src/game_core/world_gen.c
+  src/game_core/world_layout.c
+  src/game_core/world_support.c
+  src/game_core/world_surface.c
 )
 target_include_directories(
   game_core

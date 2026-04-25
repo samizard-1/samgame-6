@@ -19,6 +19,22 @@ static void test_player_motion_starts_grounded(void)
     assert(state.grounded);
 }
 
+static void test_player_pose_tracks_resolved_position(void)
+{
+    player_pose pose = player_pose_create(1.0f, player_motion_default_eye_height(), -2.0f);
+
+    assert_float_equal(pose.x, 1.0f);
+    assert_float_equal(pose.eye_y, player_motion_default_eye_height());
+    assert_float_equal(pose.z, -2.0f);
+
+    player_pose_set_xz(&pose, 3.0f, 4.0f);
+    player_pose_set_eye_y(&pose, 5.0f);
+
+    assert_float_equal(pose.x, 3.0f);
+    assert_float_equal(pose.eye_y, 5.0f);
+    assert_float_equal(pose.z, 4.0f);
+}
+
 static void test_jump_moves_up_from_ground(void)
 {
     player_motion_state state = player_motion_create();
@@ -172,6 +188,7 @@ static void test_zero_or_negative_delta_is_noop(void)
 void test_player_motion(void)
 {
     test_player_motion_starts_grounded();
+    test_player_pose_tracks_resolved_position();
     test_jump_moves_up_from_ground();
     test_airborne_jump_request_does_not_double_jump();
     test_fall_clamps_back_to_ground();

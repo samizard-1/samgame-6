@@ -1,11 +1,11 @@
 #include <assert.h>
 
-#include "../src/game_core/startup_config.h"
+#include "../src/app_config.h"
 
 void test_startup_config(void)
 {
-    assert(STARTUP_SCREEN_WIDTH == 800);
-    assert(STARTUP_SCREEN_HEIGHT == 450);
-    assert(STARTUP_TARGET_FPS == 60);
-    assert(STARTUP_DEFAULT_COLUMN_COUNT == 20);
+    assert(APP_SCREEN_WIDTH == 800);
+    assert(APP_SCREEN_HEIGHT == 450);
+    assert(APP_TARGET_FPS == 60);
+    assert(APP_DEFAULT_COLUMN_COUNT == 20);
 }

@@ -1,9 +1,12 @@
 #include "raylib.h"
 
+#include "app_config.h"
+#include "game_core/world_collision.h"
 #include "game_core/player_motion.h"
-#include "game_core/startup_config.h"
 #include "game_core/world_config.h"
 #include "game_core/world_gen.h"
+#include "game_core/world_support.h"
+#include "game_core/world_surface.h"
 
 #include <stddef.h>
 #include <time.h>
@@ -12,8 +15,11 @@ typedef struct app_state {
     Camera camera;
     int camera_mode;
     player_motion_state player_motion;
-    world_column columns[STARTUP_DEFAULT_COLUMN_COUNT];
+    player_pose player_pose;
+    world_column columns[APP_DEFAULT_COLUMN_COUNT];
+    world_climbable_surface surfaces[APP_DEFAULT_COLUMN_COUNT];
     world_layout_bounds bounds;
+    size_t column_count;
     unsigned int world_seed;
 } app_state;
 
@@ -97,14 +103,18 @@ static void DrawHud(const Camera *camera, unsigned int worldSeed)
 static app_state CreateAppState(void)
 {
     app_state state = { 0 };
+    world_gen_result result;
 
     state.camera = CreateStartupCamera();
     state.camera_mode = CAMERA_FIRST_PERSON;
     state.player_motion = player_motion_create();
+    state.player_pose = player_pose_create(state.camera.position.x, state.camera.position.y, state.camera.position.z);
     state.bounds = world_layout_default_bounds();
     state.world_seed = (unsigned int)time(NULL);
 
-    world_gen_generate(state.world_seed, STARTUP_DEFAULT_COLUMN_COUNT, state.columns);
+    result = world_gen_generate(state.world_seed, APP_DEFAULT_COLUMN_COUNT, state.columns);
+    state.column_count = result.generated_count;
+    world_climbable_surfaces_from_columns(state.columns, state.column_count, state.surfaces);
 
     return state;
 }
@@ -124,14 +134,14 @@ static void UpdateAppState(app_state *state)
     if (state->camera.position.x != previousCameraPosition.x || state->camera.position.z != previousCameraPosition.z)
     {
         const world_collision_walls collisionWalls = world_collision_default_walls();
-        const float playerFeetY = state->player_motion.eye_y - defaultEyeHeight;
+        const float playerFeetY = state->player_pose.eye_y - defaultEyeHeight;
         float resolvedX = state->camera.position.x;
         float resolvedZ = state->camera.position.z;
 
-        world_collision_resolve_player_xz(
+        world_collision_resolve_player_surfaces_xz(
             &collisionWalls,
-            state->columns,
-            STARTUP_DEFAULT_COLUMN_COUNT,
+            state->surfaces,
+            state->column_count,
             playerRadius,
             playerFeetY,
             &resolvedX,
@@ -145,16 +155,17 @@ static void UpdateAppState(app_state *state)
         state->camera.position.z = resolvedZ;
         state->camera.target.x += correctionX;
         state->camera.target.z += correctionZ;
+        player_pose_set_xz(&state->player_pose, resolvedX, resolvedZ);
     }
 
     {
-        const float playerFeetY = state->player_motion.eye_y - defaultEyeHeight;
-        const float supportY = world_support_find_floor_y(state->columns,
-                                                          STARTUP_DEFAULT_COLUMN_COUNT,
+        const float playerFeetY = state->player_pose.eye_y - defaultEyeHeight;
+        const float supportY = world_support_find_floor_y(state->surfaces,
+                                                          state->column_count,
                                                           playerRadius,
                                                           playerFeetY,
-                                                          state->camera.position.x,
-                                                          state->camera.position.z);
+                                                          state->player_pose.x,
+                                                          state->player_pose.z);
         const float supportEyeY = supportY + defaultEyeHeight;
 
         player_motion_update(&state->player_motion,
@@ -168,6 +179,7 @@ static void UpdateAppState(app_state *state)
 
         state->camera.position.y = state->player_motion.eye_y;
         state->camera.target.y += correctionY;
+        player_pose_set_eye_y(&state->player_pose, state->player_motion.eye_y);
     }
 }
 
@@ -178,7 +190,7 @@ static void DrawAppState(const app_state *state)
 
     BeginMode3D(state->camera);
     DrawRoom(&state->bounds);
-    DrawGeneratedColumns(state->columns, STARTUP_DEFAULT_COLUMN_COUNT);
+    DrawGeneratedColumns(state->columns, state->column_count);
     EndMode3D();
 
     DrawHud(&state->camera, state->world_seed);
@@ -187,12 +199,12 @@ static void DrawAppState(const app_state *state)
 
 int main(void)
 {
-    InitWindow(STARTUP_SCREEN_WIDTH, STARTUP_SCREEN_HEIGHT, "samgame - raylib first person starter");
+    InitWindow(APP_SCREEN_WIDTH, APP_SCREEN_HEIGHT, "samgame - raylib first person starter");
 
     app_state state = CreateAppState();
 
     DisableCursor();
-    SetTargetFPS(STARTUP_TARGET_FPS);
+    SetTargetFPS(APP_TARGET_FPS);
 
     while (!WindowShouldClose())
     {

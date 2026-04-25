@@ -22,6 +22,36 @@ player_motion_state player_motion_create(void)
     return state;
 }
 
+player_pose player_pose_create(float x, float eye_y, float z)
+{
+    player_pose pose;
+
+    pose.x = x;
+    pose.eye_y = eye_y;
+    pose.z = z;
+
+    return pose;
+}
+
+void player_pose_set_xz(player_pose *pose, float x, float z)
+{
+    if (pose == NULL) {
+        return;
+    }
+
+    pose->x = x;
+    pose->z = z;
+}
+
+void player_pose_set_eye_y(player_pose *pose, float eye_y)
+{
+    if (pose == NULL) {
+        return;
+    }
+
+    pose->eye_y = eye_y;
+}
+
 void player_motion_request_jump(player_motion_state *state)
 {
     if (state == NULL || !state->grounded) {

@@ -1,0 +1,9 @@
+#ifndef APP_CONFIG_H
+#define APP_CONFIG_H
+
+#define APP_SCREEN_WIDTH 800
+#define APP_SCREEN_HEIGHT 450
+#define APP_TARGET_FPS 60
+#define APP_DEFAULT_COLUMN_COUNT 20
+
+#endif

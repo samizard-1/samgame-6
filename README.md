@@ -38,14 +38,24 @@ raylib is acquired with CMake `FetchContent` only and pinned to release `5.5`. T
 |-- README.md
 |-- assets/
 |-- src/
+|   |-- app_config.h
 |   |-- main.c
 |   `-- game_core/
 |       |-- player_motion.h
 |       |-- player_motion.c
-|       |-- startup_config.h
+|       |-- world_column.h
+|       |-- world_column.c
+|       |-- world_collision.h
+|       |-- world_collision.c
 |       |-- world_config.h
 |       |-- world_gen.h
-|       `-- world_gen.c
+|       |-- world_gen.c
+|       |-- world_layout.h
+|       |-- world_layout.c
+|       |-- world_support.h
+|       |-- world_support.c
+|       |-- world_surface.h
+|       `-- world_surface.c
 `-- tests/
     |-- test_player_motion.c
     |-- test_startup_config.c
@@ -55,10 +65,9 @@ raylib is acquired with CMake `FetchContent` only and pinned to release `5.5`. T
 ## World Geometry
 
 `game_core` treats climbable geometry as top surfaces with X/Z footprints and a
-top height. Generated pillars are the first geometry source that contributes
-those surfaces, but the support and collision APIs are intentionally surface-
-based so future objects, such as moving boxes, can join the same path without
-making the player movement code pillar-specific.
+top height. Generated pillars are converted into surfaces before runtime
+support and collision checks, so future objects, such as moving boxes, can join
+the same path without making the player movement code pillar-specific.
 
 Pillars use discrete levels instead of arbitrary continuous heights. A level is
 `WORLD_PILLAR_LEVEL_HEIGHT` units tall, with level 1 reachable from the floor by
@@ -75,3 +84,7 @@ World dimensions live in `src/game_core/world_config.h`. Use that file for room
 bounds, wall thickness, roof height, roof thickness, pillar level defaults,
 column radius, and player collision radius so generation, rendering, collision,
 tests, and documentation stay aligned.
+
+App startup constants such as screen size, target FPS, and startup column count
+live in `src/app_config.h` so executable policy stays out of the raylib-free
+core.
