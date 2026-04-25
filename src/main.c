@@ -2,6 +2,7 @@
 
 #include "game_core/player_motion.h"
 #include "game_core/startup_config.h"
+#include "game_core/world_config.h"
 #include "game_core/world_gen.h"
 
 #include <stddef.h>
@@ -44,6 +45,22 @@ static void DrawGeneratedColumns(const world_column *columns, size_t count)
         DrawCube(position, width, column.height, width, fill);
         DrawCubeWires(position, width, column.height, width, MAROON);
     }
+}
+
+static void DrawRoom(const world_gen_bounds *bounds)
+{
+    const float wall_height = world_gen_default_roof_y();
+    const float wall_center_y = wall_height * 0.5f;
+    const float width = (bounds->max_x - bounds->min_x) + (bounds->radius * 2.0f);
+    const float depth = (bounds->max_z - bounds->min_z) + (bounds->radius * 2.0f);
+    const float roof_center_y = wall_height + (WORLD_ROOF_THICKNESS * 0.5f);
+
+    DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ width, depth }, LIGHTGRAY);
+    DrawCube((Vector3){ bounds->min_x - bounds->radius, wall_center_y, 0.0f }, WORLD_WALL_THICKNESS, wall_height, depth, BLUE);
+    DrawCube((Vector3){ bounds->max_x + bounds->radius, wall_center_y, 0.0f }, WORLD_WALL_THICKNESS, wall_height, depth, LIME);
+    DrawCube((Vector3){ 0.0f, wall_center_y, bounds->min_z - bounds->radius }, width, wall_height, WORLD_WALL_THICKNESS, VIOLET);
+    DrawCube((Vector3){ 0.0f, wall_center_y, bounds->max_z + bounds->radius }, width, wall_height, WORLD_WALL_THICKNESS, GOLD);
+    DrawCube((Vector3){ 0.0f, roof_center_y, 0.0f }, width, WORLD_ROOF_THICKNESS, depth, Fade(SKYBLUE, 0.35f));
 }
 
 static void DrawHud(const Camera *camera, unsigned int worldSeed)
@@ -92,7 +109,7 @@ int main(void)
             player_motion_request_jump(&playerMotion);
         }
 
-        player_motion_update(&playerMotion, GetFrameTime());
+        player_motion_update_with_ceiling(&playerMotion, GetFrameTime(), world_gen_default_roof_y());
 
         if (camera.position.y != playerMotion.eye_y) {
             const float correctionY = playerMotion.eye_y - camera.position.y;
@@ -130,10 +147,7 @@ int main(void)
         ClearBackground(RAYWHITE);
 
         BeginMode3D(camera);
-        DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 32.0f, 32.0f }, LIGHTGRAY);
-        DrawCube((Vector3){ bounds.min_x - bounds.radius, 2.5f, 0.0f }, 1.0f, 5.0f, 32.0f, BLUE);
-        DrawCube((Vector3){ bounds.max_x + bounds.radius, 2.5f, 0.0f }, 1.0f, 5.0f, 32.0f, LIME);
-        DrawCube((Vector3){ 0.0f, 2.5f, bounds.max_z + bounds.radius }, 32.0f, 5.0f, 1.0f, GOLD);
+        DrawRoom(&bounds);
         DrawGeneratedColumns(columns, STARTUP_DEFAULT_COLUMN_COUNT);
         EndMode3D();
 

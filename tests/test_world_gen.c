@@ -2,7 +2,9 @@
 #include <math.h>
 #include <stddef.h>
 
+#include "../src/game_core/player_motion.h"
 #include "../src/game_core/startup_config.h"
+#include "../src/game_core/world_config.h"
 #include "../src/game_core/world_gen.h"
 
 void test_startup_config(void);
@@ -85,13 +87,13 @@ static void test_generation_defaults_and_determinism(void)
     world_column repeated[STARTUP_DEFAULT_COLUMN_COUNT];
     size_t index;
 
-    assert(bounds.min_x == -15.0f);
-    assert(bounds.max_x == 15.0f);
-    assert(bounds.min_z == -15.0f);
-    assert(bounds.max_z == 15.0f);
-    assert(bounds.min_height == 1.0f);
-    assert(bounds.max_height == 12.0f);
-    assert(bounds.radius == 1.0f);
+    assert(bounds.min_x == WORLD_ROOM_MIN_X);
+    assert(bounds.max_x == WORLD_ROOM_MAX_X);
+    assert(bounds.min_z == WORLD_ROOM_MIN_Z);
+    assert(bounds.max_z == WORLD_ROOM_MAX_Z);
+    assert(bounds.min_height == WORLD_COLUMN_MIN_HEIGHT);
+    assert(bounds.max_height == WORLD_COLUMN_MAX_HEIGHT);
+    assert(bounds.radius == WORLD_COLUMN_RADIUS);
 
     world_gen_generate(1234u, STARTUP_DEFAULT_COLUMN_COUNT, generated);
     world_gen_generate(1234u, STARTUP_DEFAULT_COLUMN_COUNT, repeated);
@@ -115,8 +117,14 @@ static void test_default_collision_walls(void)
 
     assert(walls.block_min_x);
     assert(walls.block_max_x);
-    assert(!walls.block_min_z);
+    assert(walls.block_min_z);
     assert(walls.block_max_z);
+}
+
+static void test_default_roof_clears_future_pillar_top_jump(void)
+{
+    assert_float_equal(world_gen_default_roof_y(), WORLD_ROOF_UNDERSIDE_Y);
+    assert(world_gen_default_roof_y() > WORLD_COLUMN_MAX_HEIGHT + player_motion_default_eye_height());
 }
 
 static void test_rendered_walls_push_candidates_back_inside(void)
@@ -129,6 +137,12 @@ static void test_rendered_walls_push_candidates_back_inside(void)
     world_gen_resolve_player_xz(&walls, NULL, 0u, player_radius, &x, &z);
     assert_float_equal(x, walls.min_x + player_radius);
     assert_float_equal(z, 0.0f);
+
+    x = 0.0f;
+    z = walls.min_z - player_radius - 3.0f;
+    world_gen_resolve_player_xz(&walls, NULL, 0u, player_radius, &x, &z);
+    assert_float_equal(x, 0.0f);
+    assert_float_equal(z, walls.min_z + player_radius);
 
     x = walls.max_x + player_radius + 3.0f;
     z = 0.0f;
@@ -143,18 +157,16 @@ static void test_rendered_walls_push_candidates_back_inside(void)
     assert_float_equal(z, walls.max_z - player_radius);
 }
 
-static void test_min_z_wall_remains_non_blocking(void)
+static void test_min_z_wall_blocks_escape(void)
 {
     const world_collision_walls walls = world_gen_default_collision_walls();
     const float player_radius = world_gen_player_collision_radius();
     float x = 2.0f;
     float z = walls.min_z - player_radius - 3.0f;
-    const float initial_x = x;
-    const float initial_z = z;
 
     world_gen_resolve_player_xz(&walls, NULL, 0u, player_radius, &x, &z);
-    assert_float_equal(x, initial_x);
-    assert_float_equal(z, initial_z);
+    assert_float_equal(x, 2.0f);
+    assert_float_equal(z, walls.min_z + player_radius);
 }
 
 static void test_column_collision_uses_square_footprint(void)
@@ -259,8 +271,9 @@ int main(void)
     test_player_motion();
     test_generation_defaults_and_determinism();
     test_default_collision_walls();
+    test_default_roof_clears_future_pillar_top_jump();
     test_rendered_walls_push_candidates_back_inside();
-    test_min_z_wall_remains_non_blocking();
+    test_min_z_wall_blocks_escape();
     test_column_collision_uses_square_footprint();
     test_exact_center_column_overlap_resolves_deterministically();
     test_multi_column_overlap_resolves_deterministically();

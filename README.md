@@ -40,17 +40,23 @@ raylib is acquired with CMake `FetchContent` only and pinned to release `5.5`. T
 |-- src/
 |   |-- main.c
 |   `-- game_core/
+|       |-- player_motion.h
+|       |-- player_motion.c
 |       |-- startup_config.h
+|       |-- world_config.h
 |       |-- world_gen.h
 |       `-- world_gen.c
 `-- tests/
+    |-- test_player_motion.c
     |-- test_startup_config.c
     `-- test_world_gen.c
 ```
 
 ## Starter Scope
 
-This starter keeps the official example's first-person camera feel, static scene walls/ground, cursor capture, and generated columns. It intentionally omits the original example's extra camera-mode hotkeys and projection-toggle flow so the initial project stays small and easy to extend.
+This starter keeps the official example's first-person camera feel, static scene room/ground, cursor capture, jumping, and generated columns. The playable area is enclosed by four blocking walls and a roof so the player cannot leave the room through the sides or top.
+
+World dimensions live in `src/game_core/world_config.h`. Use that file for room bounds, wall thickness, roof height, roof thickness, column height/radius, and player collision radius so generation, rendering, collision, tests, and documentation stay aligned.
 
 ## VS Code
 

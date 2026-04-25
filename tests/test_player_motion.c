@@ -61,6 +61,33 @@ static void test_fall_clamps_back_to_ground(void)
     assert(state.grounded);
 }
 
+static void test_ceiling_clamps_upward_motion(void)
+{
+    player_motion_state state = player_motion_create();
+    const float ceiling_y = 2.1f;
+
+    player_motion_request_jump(&state);
+    player_motion_update_with_ceiling(&state, 0.1f, ceiling_y);
+
+    assert_float_equal(state.eye_y, ceiling_y);
+    assert_float_equal(state.velocity_y, 0.0f);
+    assert(!state.grounded);
+}
+
+static void test_ceiling_is_noop_below_roof(void)
+{
+    player_motion_state state = player_motion_create();
+    const float ceiling_y = 18.0f;
+
+    player_motion_request_jump(&state);
+    player_motion_update_with_ceiling(&state, 0.1f, ceiling_y);
+
+    assert(state.eye_y > player_motion_default_eye_height());
+    assert(state.eye_y < ceiling_y);
+    assert(state.velocity_y > 0.0f);
+    assert(!state.grounded);
+}
+
 static void test_zero_or_negative_delta_is_noop(void)
 {
     player_motion_state state = player_motion_create();
@@ -85,5 +112,7 @@ void test_player_motion(void)
     test_jump_moves_up_from_ground();
     test_airborne_jump_request_does_not_double_jump();
     test_fall_clamps_back_to_ground();
+    test_ceiling_clamps_upward_motion();
+    test_ceiling_is_noop_below_roof();
     test_zero_or_negative_delta_is_noop();
 }

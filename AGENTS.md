@@ -35,10 +35,13 @@ entire project unless a deeper `AGENTS.md` overrides it.
 - Preserve deterministic world generation for a fixed seed.
 - Preserve the default map/collision behavior unless the task explicitly changes
   it:
+  - world definition constants live in `src/game_core/world_config.h`,
   - default bounds are `[-15, 15]` on X/Z,
   - column radius is `1.0`,
   - player collision radius is `0.5`,
-  - min-Z wall is intentionally non-blocking,
+  - all four side walls are blocking,
+  - roof underside is high enough above the default max column height for future
+    pillar-top jumping,
   - column collision uses square footprints, matching rendered cubes.
 
 ## Build And Test

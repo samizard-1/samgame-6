@@ -34,6 +34,7 @@ typedef struct world_collision_walls {
 
 world_gen_bounds world_gen_default_bounds(void);
 float world_gen_player_collision_radius(void);
+float world_gen_default_roof_y(void);
 world_collision_walls world_gen_default_collision_walls(void);
 void world_gen_generate(unsigned int seed, size_t count, world_column *out_columns);
 void world_gen_resolve_player_xz(const world_collision_walls *walls,

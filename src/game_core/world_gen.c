@@ -1,5 +1,7 @@
 #include "world_gen.h"
 
+#include "world_config.h"
+
 #include <math.h>
 
 enum {
@@ -8,8 +10,6 @@ enum {
     WORLD_GEN_FLOAT_MASK = 0x00FFFFFFu
 };
 
-static const float WORLD_GEN_PLAYER_RADIUS = 0.5f;
-static const float WORLD_GEN_RENDERED_WALL_THICKNESS = 1.0f;
 static const size_t WORLD_GEN_COLLISION_EXTRA_PASSES = 4u;
 
 static unsigned int world_gen_next(unsigned int *state)
@@ -142,26 +142,31 @@ world_gen_bounds world_gen_default_bounds(void)
 {
     world_gen_bounds bounds;
 
-    bounds.min_x = -15.0f;
-    bounds.max_x = 15.0f;
-    bounds.min_z = -15.0f;
-    bounds.max_z = 15.0f;
-    bounds.min_height = 1.0f;
-    bounds.max_height = 12.0f;
-    bounds.radius = 1.0f;
+    bounds.min_x = WORLD_ROOM_MIN_X;
+    bounds.max_x = WORLD_ROOM_MAX_X;
+    bounds.min_z = WORLD_ROOM_MIN_Z;
+    bounds.max_z = WORLD_ROOM_MAX_Z;
+    bounds.min_height = WORLD_COLUMN_MIN_HEIGHT;
+    bounds.max_height = WORLD_COLUMN_MAX_HEIGHT;
+    bounds.radius = WORLD_COLUMN_RADIUS;
 
     return bounds;
 }
 
 float world_gen_player_collision_radius(void)
 {
-    return WORLD_GEN_PLAYER_RADIUS;
+    return WORLD_PLAYER_COLLISION_RADIUS;
+}
+
+float world_gen_default_roof_y(void)
+{
+    return WORLD_ROOF_UNDERSIDE_Y;
 }
 
 world_collision_walls world_gen_default_collision_walls(void)
 {
     const world_gen_bounds bounds = world_gen_default_bounds();
-    const float half_wall_thickness = WORLD_GEN_RENDERED_WALL_THICKNESS * 0.5f;
+    const float half_wall_thickness = WORLD_WALL_THICKNESS * 0.5f;
     world_collision_walls walls;
 
     walls.min_x = bounds.min_x - bounds.radius + half_wall_thickness;
@@ -170,7 +175,7 @@ world_collision_walls world_gen_default_collision_walls(void)
     walls.max_z = bounds.max_z + bounds.radius - half_wall_thickness;
     walls.block_min_x = true;
     walls.block_max_x = true;
-    walls.block_min_z = false;
+    walls.block_min_z = true;
     walls.block_max_z = true;
 
     return walls;
