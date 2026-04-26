@@ -1,11 +1,6 @@
 #include <assert.h>
 #include <math.h>
 #include <stddef.h>
-#include <stdlib.h>
-
-#ifdef _MSC_VER
-#include <crtdbg.h>
-#endif
 
 #include "../src/app_config.h"
 #include "../src/game_core/player_motion.h"
@@ -14,9 +9,6 @@
 #include "../src/game_core/world_gen.h"
 #include "../src/game_core/world_support.h"
 #include "../src/game_core/world_surface.h"
-
-void test_startup_config(void);
-void test_player_motion(void);
 
 typedef struct candidate_position {
     float x;
@@ -848,12 +840,6 @@ static void test_default_collision_walls(void)
     assert(walls.block_max_z);
 }
 
-static void test_default_roof_clears_future_block_top_jump(void)
-{
-    assert_float_equal(world_layout_default_roof_y(), WORLD_ROOF_UNDERSIDE_Y);
-    assert(world_layout_default_roof_y() > WORLD_BLOCK_MAX_HEIGHT + player_motion_default_eye_height());
-}
-
 static void test_no_ceiling_fallback_allows_infinite_climb(void)
 {
     const float no_ceiling_y = 1000000.0f;
@@ -985,7 +971,7 @@ static void test_block_bottom_clamps_upward_motion(void)
                                                state.eye_y,
                                                block.x,
                                                block.z,
-                                               world_layout_default_roof_y());
+                                               1000000.0f);
 
     player_motion_update(&state, 0.1f, support_eye_y, ceiling_y);
 
@@ -1015,7 +1001,7 @@ static void test_repeated_jump_updates_do_not_pass_block_bottom(void)
                                                                state.eye_y,
                                                                block.x,
                                                                block.z,
-                                                               world_layout_default_roof_y());
+                                                               1000000.0f);
 
         player_motion_update(&state, 1.0f / 60.0f, support_eye_y, ceiling_y);
 
@@ -1212,16 +1198,8 @@ static void test_xz_resolution_leaves_y_unchanged(void)
     assert_float_equal(candidate.z, 0.25f);
 }
 
-int main(void)
+void test_world_gen(void)
 {
-#ifdef _MSC_VER
-    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
-    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
-    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
-#endif
-
-    test_startup_config();
-    test_player_motion();
     test_generation_defaults_and_determinism();
     test_level_one_is_reachable_but_level_two_is_not_from_floor();
     test_default_generation_builds_multiple_reachable_paths_to_top();
@@ -1238,7 +1216,6 @@ int main(void)
     test_generation_reports_failure_when_capacity_is_exhausted();
     test_block_create_keeps_unbounded_level_and_height_aligned();
     test_default_collision_walls();
-    test_default_roof_clears_future_block_top_jump();
     test_no_ceiling_fallback_allows_infinite_climb();
     test_rendered_walls_push_candidates_back_inside();
     test_min_z_wall_blocks_escape();
@@ -1262,6 +1239,4 @@ int main(void)
     test_multi_block_overlap_resolves_deterministically();
     test_valid_position_is_a_noop();
     test_xz_resolution_leaves_y_unchanged();
-
-    return 0;
 }

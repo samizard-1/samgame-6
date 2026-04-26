@@ -25,6 +25,11 @@ typedef struct world_gen_level_index {
     size_t count;
 } world_gen_level_index;
 
+typedef enum world_gen_anchor_mode {
+    WORLD_GEN_ANCHOR_MODE_DIRECT_PATHS,
+    WORLD_GEN_ANCHOR_MODE_SEGMENTED_PATHS
+} world_gen_anchor_mode;
+
 static unsigned int world_gen_next(unsigned int *state)
 {
     *state = (*state * WORLD_GEN_LCG_MULTIPLIER) + WORLD_GEN_LCG_INCREMENT;
@@ -585,6 +590,101 @@ static size_t world_gen_stream_target_count_for_level(unsigned int *state, const
     return target;
 }
 
+static void world_gen_select_level_anchors(unsigned int *state,
+                                           const world_block *blocks,
+                                           world_gen_level_index previous_level,
+                                           const world_gen_params *params,
+                                           size_t placed_this_level,
+                                           world_gen_anchor_mode anchor_mode,
+                                           const world_block **anchors,
+                                           size_t *anchor_count)
+{
+    *anchors = &blocks[previous_level.start];
+    *anchor_count = previous_level.count;
+
+    if (placed_this_level >= params->min_top_level_paths ||
+        placed_this_level >= previous_level.count) {
+        return;
+    }
+
+    if (anchor_mode == WORLD_GEN_ANCHOR_MODE_SEGMENTED_PATHS) {
+        const size_t path_count = params->min_top_level_paths < previous_level.count ?
+                                  params->min_top_level_paths :
+                                  previous_level.count;
+        const size_t segment_start = (placed_this_level * previous_level.count) / path_count;
+        const size_t segment_end = ((placed_this_level + 1u) * previous_level.count) / path_count;
+        size_t segment_count = segment_end - segment_start;
+
+        if (segment_count == 0u) {
+            segment_count = 1u;
+        }
+
+        *anchors = &blocks[previous_level.start + segment_start + world_gen_index(state, segment_count)];
+        *anchor_count = 1u;
+        return;
+    }
+
+    *anchors = &blocks[previous_level.start + placed_this_level];
+    *anchor_count = 1u;
+}
+
+static world_gen_result world_gen_append_level_once(unsigned int *state,
+                                                    const world_layout_bounds *bounds,
+                                                    const world_gen_params *params,
+                                                    world_gen_level_index previous_level,
+                                                    int level,
+                                                    size_t target,
+                                                    world_gen_anchor_mode anchor_mode,
+                                                    size_t capacity,
+                                                    world_block *blocks,
+                                                    size_t *block_count)
+{
+    size_t placed_this_level = 0u;
+
+    if (previous_level.count == 0u) {
+        return world_gen_failure(*block_count);
+    }
+
+    while (placed_this_level < target && *block_count < capacity) {
+        const world_block *anchors;
+        size_t anchor_count;
+        float x;
+        float z;
+
+        world_gen_select_level_anchors(state,
+                                       blocks,
+                                       previous_level,
+                                       params,
+                                       placed_this_level,
+                                       anchor_mode,
+                                       &anchors,
+                                       &anchor_count);
+
+        if (!world_gen_place_near_frontier(state,
+                                           bounds,
+                                           params,
+                                           blocks,
+                                           *block_count,
+                                           anchors,
+                                           anchor_count,
+                                           level,
+                                           &x,
+                                           &z)) {
+            return world_gen_failure(*block_count);
+        }
+
+        blocks[*block_count] = world_block_create(x, z, level, bounds->block_half_x, bounds->block_half_z);
+        ++*block_count;
+        ++placed_this_level;
+    }
+
+    if (placed_this_level < target) {
+        return world_gen_failure(*block_count);
+    }
+
+    return world_gen_success(*block_count);
+}
+
 static world_gen_result world_gen_stream_append_level(world_gen_stream_state *stream,
                                                       int level,
                                                       size_t capacity,
@@ -608,8 +708,7 @@ static world_gen_result world_gen_stream_append_level(world_gen_stream_state *st
     for (attempt = 0; attempt < WORLD_GEN_STREAM_RETRY_ATTEMPTS; ++attempt) {
         const size_t start_count = *block_count;
         size_t target;
-        size_t placed_this_level = 0u;
-        bool failed = false;
+        world_gen_result result;
 
         stream->rng_state = attempt_seed;
         target = world_gen_stream_target_count_for_level(&stream->rng_state, &stream->params);
@@ -622,49 +721,17 @@ static world_gen_result world_gen_stream_append_level(world_gen_stream_state *st
             return world_gen_failure(*block_count);
         }
 
-        while (placed_this_level < target) {
-            const world_block *anchors = &blocks[previous_level.start];
-            size_t anchor_count = previous_level.count;
-            float x;
-            float z;
-
-            if (placed_this_level < stream->params.min_top_level_paths &&
-                placed_this_level < previous_level.count) {
-                const size_t path_count = stream->params.min_top_level_paths < previous_level.count ?
-                                          stream->params.min_top_level_paths :
-                                          previous_level.count;
-                const size_t segment_start = (placed_this_level * previous_level.count) / path_count;
-                const size_t segment_end = ((placed_this_level + 1u) * previous_level.count) / path_count;
-                size_t segment_count = segment_end - segment_start;
-
-                if (segment_count == 0u) {
-                    segment_count = 1u;
-                }
-
-                anchors = &blocks[previous_level.start + segment_start + world_gen_index(&stream->rng_state, segment_count)];
-                anchor_count = 1u;
-            }
-
-            if (!world_gen_place_near_frontier(&stream->rng_state,
-                                               &bounds,
-                                               &stream->params,
-                                               blocks,
-                                               *block_count,
-                                               anchors,
-                                               anchor_count,
-                                               level,
-                                               &x,
-                                               &z)) {
-                failed = true;
-                break;
-            }
-
-            blocks[*block_count] = world_block_create(x, z, level, bounds.block_half_x, bounds.block_half_z);
-            ++*block_count;
-            ++placed_this_level;
-        }
-
-        if (!failed) {
+        result = world_gen_append_level_once(&stream->rng_state,
+                                             &bounds,
+                                             &stream->params,
+                                             previous_level,
+                                             level,
+                                             target,
+                                             WORLD_GEN_ANCHOR_MODE_SEGMENTED_PATHS,
+                                             capacity,
+                                             blocks,
+                                             block_count);
+        if (result.success) {
             stream->max_generated_level = level;
             return world_gen_success(*block_count);
         }
@@ -712,9 +779,10 @@ static world_gen_result world_gen_generate_once(unsigned int seed,
     }
 
     for (level = WORLD_BLOCK_MIN_LEVEL + 1; level <= WORLD_BLOCK_MAX_LEVEL && generated_count < count; ++level) {
-        size_t placed_this_level = 0u;
         const size_t remaining_count = count - generated_count;
         const world_gen_level_index previous_level = levels[level - 1];
+        const size_t start_count = generated_count;
+        world_gen_result result;
 
         if (previous_level.count == 0u) {
             return world_gen_failure(generated_count);
@@ -723,36 +791,21 @@ static world_gen_result world_gen_generate_once(unsigned int seed,
         target = world_gen_target_count_for_level(remaining_count, level, params);
         levels[level].start = generated_count;
 
-        while (placed_this_level < target && generated_count < count) {
-            const world_block *anchors = &out_blocks[previous_level.start];
-            size_t anchor_count = previous_level.count;
-            float x;
-            float z;
-
-            if (placed_this_level < params->min_top_level_paths &&
-                placed_this_level < previous_level.count) {
-                anchors = &out_blocks[previous_level.start + placed_this_level];
-                anchor_count = 1u;
-            }
-
-            if (!world_gen_place_near_frontier(&state,
-                                               &bounds,
-                                               params,
-                                               out_blocks,
-                                               generated_count,
-                                               anchors,
-                                               anchor_count,
-                                               level,
-                                               &x,
-                                               &z)) {
-                return world_gen_failure(generated_count);
-            }
-
-            out_blocks[generated_count] = world_block_create(x, z, level, bounds.block_half_x, bounds.block_half_z);
-            ++generated_count;
-            ++placed_this_level;
-            ++levels[level].count;
+        result = world_gen_append_level_once(&state,
+                                             &bounds,
+                                             params,
+                                             previous_level,
+                                             level,
+                                             target,
+                                             WORLD_GEN_ANCHOR_MODE_DIRECT_PATHS,
+                                             count,
+                                             out_blocks,
+                                             &generated_count);
+        if (!result.success) {
+            return world_gen_failure(generated_count);
         }
+
+        levels[level].count = generated_count - start_count;
     }
 
     if (generated_count < count) {

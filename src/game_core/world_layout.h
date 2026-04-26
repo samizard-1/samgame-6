@@ -27,7 +27,6 @@ typedef struct world_collision_walls {
 
 world_layout_bounds world_layout_default_bounds(void);
 float world_collision_player_radius(void);
-float world_layout_default_roof_y(void);
 world_collision_walls world_collision_default_walls(void);
 
 #endif

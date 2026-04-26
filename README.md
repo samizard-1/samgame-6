@@ -80,12 +80,12 @@ support the player, and undersides act as ceilings during jumps.
 
 ## Starter Scope
 
-This starter keeps the official example's first-person camera feel, static scene room/ground, cursor capture, jumping, and generated blocks. The playable area is enclosed by four blocking walls and a roof so the player cannot leave the room through the sides or top.
+This starter keeps the official example's first-person camera feel, static scene room/ground, cursor capture, jumping, and generated blocks. The playable area is enclosed by four blocking side walls, while vertical climb is intentionally unbounded.
 
 World dimensions live in `src/game_core/world_config.h`. Use that file for room
-bounds, wall thickness, roof height, roof thickness, block level defaults,
-block extents, and player collision radius so generation, rendering, collision,
-tests, and documentation stay aligned.
+bounds, wall thickness, block level defaults, block extents, and player
+collision radius so generation, rendering, collision, tests, and documentation
+stay aligned.
 
 App startup constants such as screen size, target FPS, and startup block count
 live in `src/app_config.h` so executable policy stays out of the raylib-free

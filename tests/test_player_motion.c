@@ -153,7 +153,7 @@ static void test_ceiling_clamps_upward_motion(void)
     assert(!state.grounded);
 }
 
-static void test_ceiling_is_noop_below_roof(void)
+static void test_high_ceiling_is_noop(void)
 {
     player_motion_state state = player_motion_create();
     const float ceiling_y = 18.0f;
@@ -197,6 +197,6 @@ void test_player_motion(void)
     test_jump_starts_from_raised_support();
     test_grounded_player_falls_when_support_drops();
     test_ceiling_clamps_upward_motion();
-    test_ceiling_is_noop_below_roof();
+    test_high_ceiling_is_noop();
     test_zero_or_negative_delta_is_noop();
 }

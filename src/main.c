@@ -1,11 +1,11 @@
 #include "raylib.h"
 
 #include "app_config.h"
+#include "game_core/gameplay_tick.h"
 #include "game_core/world_collision.h"
 #include "game_core/player_motion.h"
 #include "game_core/world_config.h"
 #include "game_core/world_gen.h"
-#include "game_core/world_support.h"
 #include "game_core/world_surface.h"
 
 #include <math.h>
@@ -24,7 +24,8 @@ typedef enum app_screen {
     APP_SCREEN_INSTRUCTIONS,
     APP_SCREEN_PLAYING,
     APP_SCREEN_PAUSED,
-    APP_SCREEN_GAME_OVER
+    APP_SCREEN_GAME_OVER,
+    APP_SCREEN_GENERATION_FAILED
 } app_screen;
 
 typedef struct app_state {
@@ -39,8 +40,8 @@ typedef struct app_state {
     size_t block_count;
     unsigned int world_seed;
     int highest_reached_level;
-    int last_generation_target_level;
-    bool last_generation_success;
+    int generation_failure_target_level;
+    bool generation_failed;
 } app_state;
 
 typedef struct app_session {
@@ -75,16 +76,12 @@ static void SetAppScreen(app_session *session, app_screen screen)
 static void StartNewGame(app_session *session)
 {
     session->game = CreateAppState();
-    SetAppScreen(session, APP_SCREEN_PLAYING);
-}
 
-static bool HasPlayerFallenBelowPruneLevel(float playerFeetY, int minimumActiveLevel)
-{
-    if (minimumActiveLevel <= WORLD_BLOCK_MIN_LEVEL) {
-        return false;
+    if (session->game.generation_failed) {
+        SetAppScreen(session, APP_SCREEN_GENERATION_FAILED);
+    } else {
+        SetAppScreen(session, APP_SCREEN_PLAYING);
     }
-
-    return playerFeetY < world_block_height_for_level(minimumActiveLevel);
 }
 
 static Camera CreateStartupCamera(void)
@@ -267,10 +264,21 @@ static void DrawGameOver(const app_state *state)
     DrawCenteredText("Press any button to return to main menu", 270, 20, BLACK);
 }
 
+static void DrawGenerationFailed(const app_state *state)
+{
+    const char *targetText = TextFormat("Attempted target level: %d", state->generation_failure_target_level);
+
+    ClearBackground(GRAY);
+    DrawCenteredText("WORLD GENERATION FAILED", 136, 40, BLACK);
+    DrawCenteredText(targetText, 210, 24, BLACK);
+    DrawCenteredText("Press any button to return to main menu", 270, 20, BLACK);
+}
+
 static app_state CreateAppState(void)
 {
     app_state state = { 0 };
     world_gen_result result;
+    const int initial_target_level = WORLD_BLOCK_MIN_LEVEL + WORLD_BLOCK_GENERATION_AHEAD_LEVELS;
 
     state.camera = CreateStartupCamera();
     state.camera_mode = CAMERA_FIRST_PERSON;
@@ -280,11 +288,11 @@ static app_state CreateAppState(void)
     state.world_seed = (unsigned int)time(NULL);
     state.world_stream = world_gen_stream_create(state.world_seed, NULL);
     state.highest_reached_level = 0;
-    state.last_generation_target_level = WORLD_BLOCK_MIN_LEVEL + WORLD_BLOCK_GENERATION_AHEAD_LEVELS;
+    state.generation_failure_target_level = initial_target_level;
 
     result = world_gen_stream_initialize(&state.world_stream, APP_MAX_ACTIVE_BLOCKS, state.blocks);
     state.block_count = result.generated_count;
-    state.last_generation_success = result.success;
+    state.generation_failed = !result.success;
     world_climbable_surfaces_from_blocks(state.blocks, state.block_count, state.surfaces);
 
     return state;
@@ -338,71 +346,39 @@ static void UpdateGameplay(app_session *session)
     }
 
     {
-        const float playerFeetY = state->player_pose.eye_y - defaultEyeHeight;
-        const float playerTopY = state->player_pose.eye_y;
-        const float supportY = world_support_find_floor_y(state->surfaces,
-                                                          state->block_count,
-                                                          playerRadius,
-                                                          playerFeetY,
-                                                          state->player_pose.x,
-                                                          state->player_pose.z);
-        const float supportEyeY = supportY + defaultEyeHeight;
-        const float ceilingY = world_collision_find_ceiling_y(state->surfaces,
-                                                             state->block_count,
-                                                             playerRadius,
-                                                             playerFeetY,
-                                                             playerTopY,
-                                                             state->player_pose.x,
-                                                             state->player_pose.z,
-                                                             APP_NO_CEILING_Y);
+        gameplay_tick_context context;
+        gameplay_tick_result result;
 
-        player_motion_update(&state->player_motion,
-                             GetFrameTime(),
-                             supportEyeY,
-                             ceilingY);
-    }
+        context.motion = &state->player_motion;
+        context.pose = &state->player_pose;
+        context.stream = &state->world_stream;
+        context.blocks = state->blocks;
+        context.surfaces = state->surfaces;
+        context.block_count = &state->block_count;
+        context.block_capacity = APP_MAX_ACTIVE_BLOCKS;
+        context.highest_reached_level = &state->highest_reached_level;
+        context.delta_seconds = GetFrameTime();
+        context.fallback_ceiling_y = APP_NO_CEILING_Y;
+        result = gameplay_tick_update(&context);
 
-    if (state->camera.position.y != state->player_motion.eye_y) {
-        const float correctionY = state->player_motion.eye_y - state->camera.position.y;
-
-        state->camera.position.y = state->player_motion.eye_y;
-        state->camera.target.y += correctionY;
-        player_pose_set_eye_y(&state->player_pose, state->player_motion.eye_y);
-    }
-
-    {
-        const float playerFeetY = state->player_pose.eye_y - defaultEyeHeight;
-        int playerLevel = (int)floorf(playerFeetY / WORLD_BLOCK_LEVEL_HEIGHT);
-        int minimumActiveLevel;
-        int targetGeneratedLevel;
-
-        if (playerLevel < 0) {
-            playerLevel = 0;
-        }
-
-        if (playerLevel > state->highest_reached_level) {
-            state->highest_reached_level = playerLevel;
-        }
-
-        minimumActiveLevel = state->highest_reached_level - WORLD_BLOCK_ACTIVE_BEHIND_LEVELS;
-        targetGeneratedLevel = state->highest_reached_level + WORLD_BLOCK_GENERATION_AHEAD_LEVELS;
-        state->last_generation_target_level = targetGeneratedLevel;
-
-        if (HasPlayerFallenBelowPruneLevel(playerFeetY, minimumActiveLevel)) {
+        if (result.status == GAMEPLAY_TICK_PLAYER_FELL) {
             SetAppScreen(session, APP_SCREEN_GAME_OVER);
             return;
         }
 
-        world_gen_stream_prune_below_level(&state->world_stream,
-                                           minimumActiveLevel,
-                                           state->blocks,
-                                           &state->block_count);
-        state->last_generation_success = world_gen_stream_generate_until_level(&state->world_stream,
-                                                                               targetGeneratedLevel,
-                                                                               APP_MAX_ACTIVE_BLOCKS,
-                                                                               state->blocks,
-                                                                               &state->block_count).success;
-        world_climbable_surfaces_from_blocks(state->blocks, state->block_count, state->surfaces);
+        if (result.status == GAMEPLAY_TICK_GENERATION_FAILED) {
+            state->generation_failed = true;
+            state->generation_failure_target_level = result.attempted_generation_level;
+            SetAppScreen(session, APP_SCREEN_GENERATION_FAILED);
+            return;
+        }
+    }
+
+    if (state->camera.position.y != state->player_pose.eye_y) {
+        const float correctionY = state->player_pose.eye_y - state->camera.position.y;
+
+        state->camera.position.y = state->player_pose.eye_y;
+        state->camera.target.y += correctionY;
     }
 }
 
@@ -482,6 +458,7 @@ static void UpdateAppSession(app_session *session)
         UpdatePauseMenu(session);
         break;
     case APP_SCREEN_GAME_OVER:
+    case APP_SCREEN_GENERATION_FAILED:
         if (IsAnyButtonPressed()) {
             SetAppScreen(session, APP_SCREEN_MAIN_MENU);
         }
@@ -560,6 +537,9 @@ static void DrawAppSession(const app_session *session)
         break;
     case APP_SCREEN_GAME_OVER:
         DrawGameOver(&session->game);
+        break;
+    case APP_SCREEN_GENERATION_FAILED:
+        DrawGenerationFailed(&session->game);
         break;
     }
 

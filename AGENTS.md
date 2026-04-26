@@ -50,8 +50,7 @@ entire project unless a deeper `AGENTS.md` overrides it.
   - block vertical thickness is `WORLD_BLOCK_HEIGHT_Y`,
   - player collision radius is `0.5`,
   - all four side walls are blocking,
-  - roof underside is high enough above the default max block height for future
-    block-top jumping,
+  - vertical climb is unbounded; block undersides can still act as local ceilings,
   - block collision uses rectangular X/Z footprints plus bottom/top Y bounds.
 
 ## Build And Test

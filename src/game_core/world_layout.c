@@ -23,11 +23,6 @@ float world_collision_player_radius(void)
     return WORLD_PLAYER_COLLISION_RADIUS;
 }
 
-float world_layout_default_roof_y(void)
-{
-    return WORLD_ROOF_UNDERSIDE_Y;
-}
-
 world_collision_walls world_collision_default_walls(void)
 {
     const world_layout_bounds bounds = world_layout_default_bounds();

@@ -1,23 +1,11 @@
 #include "world_collision.h"
 
+#include "world_surface_geometry.h"
+
 #include <math.h>
 #include <stdbool.h>
 
 static const size_t WORLD_COLLISION_EXTRA_PASSES = 4u;
-static const float WORLD_SUPPORT_HEIGHT_EPSILON = 0.05f;
-
-static float world_collision_clamp(float value, float minimum, float maximum)
-{
-    if (value < minimum) {
-        return minimum;
-    }
-
-    if (value > maximum) {
-        return maximum;
-    }
-
-    return value;
-}
 
 static bool world_collision_resolve_player_walls(const world_collision_walls *walls,
                                                  float player_radius,
@@ -56,17 +44,17 @@ static bool world_collision_resolve_player_surface_xz(const world_climbable_surf
                                                       float *x,
                                                       float *z)
 {
-    const float closest_x = world_collision_clamp(*x, surface->min_x, surface->max_x);
-    const float closest_z = world_collision_clamp(*z, surface->min_z, surface->max_z);
+    const float closest_x = world_surface_clamp(*x, surface->min_x, surface->max_x);
+    const float closest_z = world_surface_clamp(*z, surface->min_z, surface->max_z);
     const float offset_x = *x - closest_x;
     const float offset_z = *z - closest_z;
     const float distance_squared = (offset_x * offset_x) + (offset_z * offset_z);
 
-    if (player_feet_y + WORLD_SUPPORT_HEIGHT_EPSILON >= surface->top_y) {
+    if (player_feet_y + WORLD_SURFACE_HEIGHT_EPSILON >= surface->top_y) {
         return false;
     }
 
-    if (player_top_y <= surface->bottom_y + WORLD_SUPPORT_HEIGHT_EPSILON) {
+    if (player_top_y <= surface->bottom_y + WORLD_SURFACE_HEIGHT_EPSILON) {
         return false;
     }
 
@@ -206,17 +194,11 @@ float world_collision_find_ceiling_y(const world_climbable_surface *surfaces,
 
     for (surface_index = 0u; surface_index < surface_count; ++surface_index) {
         const world_climbable_surface *surface = &surfaces[surface_index];
-        const float closest_x = world_collision_clamp(x, surface->min_x, surface->max_x);
-        const float closest_z = world_collision_clamp(z, surface->min_z, surface->max_z);
-        const float offset_x = x - closest_x;
-        const float offset_z = z - closest_z;
-        const float distance_squared = (offset_x * offset_x) + (offset_z * offset_z);
-
-        if (surface->bottom_y <= player_feet_y + WORLD_SUPPORT_HEIGHT_EPSILON) {
+        if (surface->bottom_y <= player_feet_y + WORLD_SURFACE_HEIGHT_EPSILON) {
             continue;
         }
 
-        const float block_ceiling_y = surface->bottom_y - WORLD_SUPPORT_HEIGHT_EPSILON;
+        const float block_ceiling_y = surface->bottom_y - WORLD_SURFACE_HEIGHT_EPSILON;
 
         if (block_ceiling_y <= player_feet_y) {
             continue;
@@ -226,7 +208,7 @@ float world_collision_find_ceiling_y(const world_climbable_surface *surfaces,
             continue;
         }
 
-        if (distance_squared <= (player_radius * player_radius)) {
+        if (world_surface_overlaps_circle_xz(surface, player_radius, x, z)) {
             ceiling_y = block_ceiling_y;
         }
     }

@@ -22,6 +22,7 @@ FetchContent_MakeAvailable(raylib)
 
 add_library(
   game_core STATIC
+  src/game_core/gameplay_tick.c
   src/game_core/player_motion.c
   src/game_core/world_block.c
   src/game_core/world_collision.c
@@ -44,6 +45,8 @@ set_target_properties(samgame PROPERTIES C_STANDARD 17 C_STANDARD_REQUIRED YES C
 
 add_executable(
   samgame_tests
+  tests/test_gameplay_tick.c
+  tests/test_main.c
   tests/test_player_motion.c
   tests/test_startup_config.c
   tests/test_world_gen.c
