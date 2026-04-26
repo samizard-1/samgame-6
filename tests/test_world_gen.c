@@ -107,6 +107,192 @@ static void assert_blocks_do_not_overlap_3d(const world_block *blocks, size_t bl
     }
 }
 
+static float block_distance_xz(world_block left, world_block right)
+{
+    const float delta_x = left.x - right.x;
+    const float delta_z = left.z - right.z;
+
+    return sqrtf((delta_x * delta_x) + (delta_z * delta_z));
+}
+
+static bool block_has_jumpable_previous_level_anchor(const world_block *blocks,
+                                                     size_t block_count,
+                                                     const world_gen_params *params,
+                                                     size_t block_index,
+                                                     float *out_distance)
+{
+    const world_block block = blocks[block_index];
+    bool found = false;
+    float best_distance = params->max_jumpable_distance + 1.0f;
+    size_t anchor_index;
+
+    if (block.level <= WORLD_BLOCK_MIN_LEVEL) {
+        if (out_distance != NULL) {
+            *out_distance = 0.0f;
+        }
+        return true;
+    }
+
+    for (anchor_index = 0u; anchor_index < block_count; ++anchor_index) {
+        const world_block anchor = blocks[anchor_index];
+
+        if (anchor.level == block.level - 1) {
+            const float distance = block_distance_xz(block, anchor);
+
+            if (distance >= params->min_jumpable_distance - 0.0001f &&
+                distance <= params->max_jumpable_distance + 0.0001f &&
+                (!found || distance < best_distance)) {
+                found = true;
+                best_distance = distance;
+            }
+        }
+    }
+
+    if (found && out_distance != NULL) {
+        *out_distance = best_distance;
+    }
+
+    return found;
+}
+
+static size_t count_blocks_at_level(const world_block *blocks, size_t block_count, int level)
+{
+    size_t count = 0u;
+    size_t index;
+
+    for (index = 0u; index < block_count; ++index) {
+        if (blocks[index].level == level) {
+            ++count;
+        }
+    }
+
+    return count;
+}
+
+static bool block_traces_to_root(const world_block *blocks,
+                                 size_t block_count,
+                                 const world_gen_params *params,
+                                 size_t block_index,
+                                 size_t root_index)
+{
+    const world_block block = blocks[block_index];
+    size_t anchor_index;
+
+    if (block_index == root_index) {
+        return block.level == WORLD_BLOCK_MIN_LEVEL;
+    }
+
+    if (block.level <= WORLD_BLOCK_MIN_LEVEL) {
+        return false;
+    }
+
+    for (anchor_index = 0u; anchor_index < block_count; ++anchor_index) {
+        const world_block anchor = blocks[anchor_index];
+        const float distance = block_distance_xz(block, anchor);
+
+        if (anchor.level == block.level - 1 &&
+            distance >= params->min_jumpable_distance - 0.0001f &&
+            distance <= params->max_jumpable_distance + 0.0001f &&
+            block_traces_to_root(blocks, block_count, params, anchor_index, root_index)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static size_t count_distinct_level_one_routes_to_top(const world_block *blocks,
+                                                     size_t block_count,
+                                                     const world_gen_params *params)
+{
+    size_t root_index;
+    size_t route_count = 0u;
+
+    for (root_index = 0u; root_index < block_count; ++root_index) {
+        size_t top_index;
+        bool root_reaches_top = false;
+
+        if (blocks[root_index].level != WORLD_BLOCK_MIN_LEVEL) {
+            continue;
+        }
+
+        for (top_index = 0u; top_index < block_count && !root_reaches_top; ++top_index) {
+            if (blocks[top_index].level == WORLD_BLOCK_MAX_LEVEL &&
+                block_traces_to_root(blocks, block_count, params, top_index, root_index)) {
+                root_reaches_top = true;
+            }
+        }
+
+        if (root_reaches_top) {
+            ++route_count;
+        }
+    }
+
+    return route_count;
+}
+
+static void assert_all_blocks_are_reachable_from_previous_level(const world_block *blocks,
+                                                                size_t block_count,
+                                                                const world_gen_params *params)
+{
+    size_t index;
+
+    for (index = 0u; index < block_count; ++index) {
+        assert(block_has_jumpable_previous_level_anchor(blocks, block_count, params, index, NULL));
+    }
+}
+
+static void assert_blocks_preserve_overhead_clearance(const world_block *blocks,
+                                                      size_t block_count,
+                                                      const world_gen_params *params)
+{
+    size_t upper_index;
+
+    for (upper_index = 0u; upper_index < block_count; ++upper_index) {
+        size_t lower_index;
+
+        for (lower_index = 0u; lower_index < block_count; ++lower_index) {
+            const world_block upper = blocks[upper_index];
+            const world_block lower = blocks[lower_index];
+            const int level_delta = upper.level - lower.level;
+
+            if (level_delta > 0 && level_delta <= params->overhead_clearance_levels) {
+                assert(!block_ranges_overlap(upper.x - upper.half_x - params->overhead_clearance_margin,
+                                             upper.x + upper.half_x + params->overhead_clearance_margin,
+                                             lower.x - lower.half_x - params->overhead_clearance_margin,
+                                             lower.x + lower.half_x + params->overhead_clearance_margin) ||
+                       !block_ranges_overlap(upper.z - upper.half_z - params->overhead_clearance_margin,
+                                             upper.z + upper.half_z + params->overhead_clearance_margin,
+                                             lower.z - lower.half_z - params->overhead_clearance_margin,
+                                             lower.z + lower.half_z + params->overhead_clearance_margin));
+            }
+        }
+    }
+}
+
+static float average_previous_level_anchor_distance(const world_block *blocks,
+                                                    size_t block_count,
+                                                    const world_gen_params *params)
+{
+    float total = 0.0f;
+    size_t measured_count = 0u;
+    size_t index;
+
+    for (index = 0u; index < block_count; ++index) {
+        float distance;
+
+        if (blocks[index].level > WORLD_BLOCK_MIN_LEVEL &&
+            block_has_jumpable_previous_level_anchor(blocks, block_count, params, index, &distance)) {
+            total += distance;
+            ++measured_count;
+        }
+    }
+
+    assert(measured_count > 0u);
+
+    return total / (float)measured_count;
+}
+
 static world_collision_walls make_open_walls(void)
 {
     world_collision_walls walls = { 0 };
@@ -179,9 +365,18 @@ static void test_generation_defaults_and_determinism(void)
     assert(bounds.max_height == WORLD_BLOCK_MAX_HEIGHT);
     assert(bounds.block_half_x == WORLD_BLOCK_HALF_X);
     assert(bounds.block_half_z == WORLD_BLOCK_HALF_Z);
-    assert(params.guaranteed_chain_length == WORLD_BLOCK_DEFAULT_CHAIN_LENGTH);
+    assert(params.level_one_count == WORLD_BLOCK_DEFAULT_LEVEL_ONE_COUNT);
+    assert(params.min_blocks_per_level == WORLD_BLOCK_DEFAULT_MIN_BLOCKS_PER_LEVEL);
+    assert(params.max_blocks_per_level == WORLD_BLOCK_DEFAULT_MAX_BLOCKS_PER_LEVEL);
+    assert(params.min_top_level_paths == WORLD_BLOCK_DEFAULT_MIN_TOP_LEVEL_PATHS);
     assert_float_equal(params.min_jumpable_distance, WORLD_BLOCK_DEFAULT_MIN_JUMPABLE_DISTANCE);
     assert_float_equal(params.max_jumpable_distance, WORLD_BLOCK_DEFAULT_MAX_JUMPABLE_DISTANCE);
+    assert_float_equal(params.preferred_gap_min, WORLD_BLOCK_DEFAULT_PREFERRED_GAP_MIN);
+    assert_float_equal(params.preferred_gap_max, WORLD_BLOCK_DEFAULT_PREFERRED_GAP_MAX);
+    assert_float_equal(params.hard_gap_chance, WORLD_BLOCK_DEFAULT_HARD_GAP_CHANCE);
+    assert_float_equal(params.coverage_bias, WORLD_BLOCK_DEFAULT_COVERAGE_BIAS);
+    assert(params.overhead_clearance_levels == WORLD_BLOCK_DEFAULT_OVERHEAD_CLEARANCE_LEVELS);
+    assert_float_equal(params.overhead_clearance_margin, WORLD_BLOCK_DEFAULT_OVERHEAD_CLEARANCE_MARGIN);
     assert_float_equal(world_block_height_for_level(WORLD_BLOCK_MIN_LEVEL), WORLD_BLOCK_MIN_HEIGHT);
     assert(world_block_height_for_level(WORLD_BLOCK_MAX_LEVEL) <= WORLD_BLOCK_MAX_HEIGHT);
     assert(world_block_height_for_level(WORLD_BLOCK_MAX_LEVEL + 1) > WORLD_BLOCK_MAX_HEIGHT - WORLD_BLOCK_LEVEL_HEIGHT);
@@ -237,86 +432,97 @@ static void test_level_one_is_reachable_but_level_two_is_not_from_floor(void)
     assert(peak_feet_y < world_block_height_for_level(2));
 }
 
-static void test_default_generation_starts_with_jumpable_chain(void)
+static void test_default_generation_builds_multiple_reachable_paths_to_top(void)
 {
     const world_gen_params params = world_gen_default_params();
     world_block generated[APP_DEFAULT_BLOCK_COUNT];
     world_gen_result result;
-    size_t index;
 
     result = world_gen_generate(4321u, APP_DEFAULT_BLOCK_COUNT, generated);
 
     assert(result.success);
     assert(result.generated_count == APP_DEFAULT_BLOCK_COUNT);
-    assert(params.guaranteed_chain_length <= APP_DEFAULT_BLOCK_COUNT);
-
-    for (index = 0u; index < params.guaranteed_chain_length; ++index) {
-        assert(generated[index].level == (int)index + WORLD_BLOCK_MIN_LEVEL);
-        assert_float_equal(generated[index].height, world_block_height_for_level(generated[index].level));
-
-        if (index > 0u) {
-            const float delta_x = generated[index].x - generated[index - 1u].x;
-            const float delta_z = generated[index].z - generated[index - 1u].z;
-            const float distance = sqrtf((delta_x * delta_x) + (delta_z * delta_z));
-
-            assert(distance >= params.min_jumpable_distance - 0.0001f);
-            assert(distance <= params.max_jumpable_distance + 0.0001f);
-            assert(generated[index].level - generated[index - 1u].level == 1);
-        }
-    }
 
     assert_blocks_do_not_overlap_3d(generated, APP_DEFAULT_BLOCK_COUNT);
+    assert_all_blocks_are_reachable_from_previous_level(generated, APP_DEFAULT_BLOCK_COUNT, &params);
+    assert_blocks_preserve_overhead_clearance(generated, APP_DEFAULT_BLOCK_COUNT, &params);
+    assert(count_blocks_at_level(generated, APP_DEFAULT_BLOCK_COUNT, WORLD_BLOCK_MAX_LEVEL) >= params.min_top_level_paths);
+    assert(count_distinct_level_one_routes_to_top(generated, APP_DEFAULT_BLOCK_COUNT, &params) >= params.min_top_level_paths);
 }
 
-static void test_generation_params_control_chain_and_nearby_upward_blocks(void)
+static void test_generation_params_control_frontier_width_and_gap_mix(void)
 {
     world_gen_params params = world_gen_default_params();
-    world_block generated[6u];
-    world_block repeated[6u];
+    world_block generated[APP_DEFAULT_BLOCK_COUNT];
+    world_block repeated[APP_DEFAULT_BLOCK_COUNT];
     world_gen_result generated_result;
     world_gen_result repeated_result;
+    bool found_preferred_gap = false;
+    bool found_harder_gap = false;
     size_t index;
 
-    params.guaranteed_chain_length = 3u;
-    params.min_jumpable_distance = 2.0f;
-    params.max_jumpable_distance = 3.0f;
-    params.nearby_block_chance = 1.0f;
-    params.upward_step_chance = 1.0f;
-    params.max_extra_level_delta = 1;
-
-    generated_result = world_gen_generate_with_params(99u, 6u, &params, generated);
-    repeated_result = world_gen_generate_with_params(99u, 6u, &params, repeated);
+    generated_result = world_gen_generate_with_params(99u, APP_DEFAULT_BLOCK_COUNT, &params, generated);
+    repeated_result = world_gen_generate_with_params(99u, APP_DEFAULT_BLOCK_COUNT, &params, repeated);
 
     assert(generated_result.success);
-    assert(generated_result.generated_count == 6u);
+    assert(generated_result.generated_count == APP_DEFAULT_BLOCK_COUNT);
     assert(repeated_result.success);
-    assert(repeated_result.generated_count == 6u);
+    assert(repeated_result.generated_count == APP_DEFAULT_BLOCK_COUNT);
 
-    for (index = 0u; index < 6u; ++index) {
+    for (index = 0u; index < APP_DEFAULT_BLOCK_COUNT; ++index) {
+        float distance;
+
         assert_block_equal(generated[index], repeated[index]);
         assert_float_equal(generated[index].height, world_block_height_for_level(generated[index].level));
 
-        if (index < params.guaranteed_chain_length) {
-            assert(generated[index].level == (int)index + WORLD_BLOCK_MIN_LEVEL);
-        } else {
-            size_t anchor_index;
-            bool is_near_previous = false;
-
-            for (anchor_index = 0u; anchor_index < index; ++anchor_index) {
-                const float delta_x = generated[index].x - generated[anchor_index].x;
-                const float delta_z = generated[index].z - generated[anchor_index].z;
-                const float distance = sqrtf((delta_x * delta_x) + (delta_z * delta_z));
-
-                if (distance <= params.max_jumpable_distance + 0.0001f) {
-                    is_near_previous = true;
-                }
+        if (generated[index].level > WORLD_BLOCK_MIN_LEVEL &&
+            block_has_jumpable_previous_level_anchor(generated, APP_DEFAULT_BLOCK_COUNT, &params, index, &distance)) {
+            if (distance <= params.preferred_gap_max + 0.0001f) {
+                found_preferred_gap = true;
             }
 
-            assert(is_near_previous);
+            if (distance > params.preferred_gap_max + 0.0001f) {
+                found_harder_gap = true;
+            }
         }
     }
 
-    assert_blocks_do_not_overlap_3d(generated, 6u);
+    assert_all_blocks_are_reachable_from_previous_level(generated, APP_DEFAULT_BLOCK_COUNT, &params);
+    assert_blocks_do_not_overlap_3d(generated, APP_DEFAULT_BLOCK_COUNT);
+    assert(found_preferred_gap);
+    assert(found_harder_gap);
+}
+
+static void test_difficulty_controls_average_gap_distance(void)
+{
+    const world_gen_params easy_params = world_gen_difficulty_params(WORLD_GEN_DIFFICULTY_EASY);
+    const world_gen_params hard_params = world_gen_difficulty_params(WORLD_GEN_DIFFICULTY_HARD);
+    world_block easy_blocks[APP_DEFAULT_BLOCK_COUNT];
+    world_block hard_blocks[APP_DEFAULT_BLOCK_COUNT];
+    const world_gen_result easy_result = world_gen_generate_with_params(123u, APP_DEFAULT_BLOCK_COUNT, &easy_params, easy_blocks);
+    const world_gen_result hard_result = world_gen_generate_with_params(123u, APP_DEFAULT_BLOCK_COUNT, &hard_params, hard_blocks);
+
+    assert(easy_result.success);
+    assert(hard_result.success);
+    assert(average_previous_level_anchor_distance(hard_blocks, APP_DEFAULT_BLOCK_COUNT, &hard_params) >
+           average_previous_level_anchor_distance(easy_blocks, APP_DEFAULT_BLOCK_COUNT, &easy_params));
+}
+
+static void test_preferred_gap_params_are_clamped_to_jumpable_range(void)
+{
+    world_gen_params params = world_gen_default_params();
+    world_block generated[APP_DEFAULT_BLOCK_COUNT];
+    world_gen_result result;
+
+    params.preferred_gap_min = params.max_jumpable_distance + 2.0f;
+    params.preferred_gap_max = params.max_jumpable_distance + 3.0f;
+    params.hard_gap_chance = 0.0f;
+
+    result = world_gen_generate_with_params(321u, APP_DEFAULT_BLOCK_COUNT, &params, generated);
+
+    assert(result.success);
+    assert(result.generated_count == APP_DEFAULT_BLOCK_COUNT);
+    assert_all_blocks_are_reachable_from_previous_level(generated, APP_DEFAULT_BLOCK_COUNT, &params);
 }
 
 static void test_generation_reports_failure_when_capacity_is_exhausted(void)
@@ -738,8 +944,10 @@ int main(void)
     test_player_motion();
     test_generation_defaults_and_determinism();
     test_level_one_is_reachable_but_level_two_is_not_from_floor();
-    test_default_generation_starts_with_jumpable_chain();
-    test_generation_params_control_chain_and_nearby_upward_blocks();
+    test_default_generation_builds_multiple_reachable_paths_to_top();
+    test_generation_params_control_frontier_width_and_gap_mix();
+    test_difficulty_controls_average_gap_distance();
+    test_preferred_gap_params_are_clamped_to_jumpable_range();
     test_generation_reports_failure_when_capacity_is_exhausted();
     test_block_create_keeps_level_and_height_aligned();
     test_default_collision_walls();

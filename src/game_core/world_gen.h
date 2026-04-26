@@ -7,13 +7,25 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+typedef enum world_gen_difficulty {
+    WORLD_GEN_DIFFICULTY_EASY,
+    WORLD_GEN_DIFFICULTY_NORMAL,
+    WORLD_GEN_DIFFICULTY_HARD
+} world_gen_difficulty;
+
 typedef struct world_gen_params {
-    size_t guaranteed_chain_length;
+    size_t level_one_count;
+    size_t min_blocks_per_level;
+    size_t max_blocks_per_level;
+    size_t min_top_level_paths;
     float min_jumpable_distance;
     float max_jumpable_distance;
-    float nearby_block_chance;
-    float upward_step_chance;
-    int max_extra_level_delta;
+    float preferred_gap_min;
+    float preferred_gap_max;
+    float hard_gap_chance;
+    float coverage_bias;
+    int overhead_clearance_levels;
+    float overhead_clearance_margin;
 } world_gen_params;
 
 typedef struct world_gen_result {
@@ -22,6 +34,7 @@ typedef struct world_gen_result {
 } world_gen_result;
 
 world_gen_params world_gen_default_params(void);
+world_gen_params world_gen_difficulty_params(world_gen_difficulty difficulty);
 world_gen_result world_gen_generate(unsigned int seed, size_t count, world_block *out_blocks);
 world_gen_result world_gen_generate_with_params(unsigned int seed,
                                                 size_t count,
