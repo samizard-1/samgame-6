@@ -30,7 +30,26 @@ typedef struct app_state {
     int highest_reached_level;
     int last_generation_target_level;
     bool last_generation_success;
+    bool is_game_over;
+    bool exit_requested;
 } app_state;
+
+static bool IsExitButtonPressed(void)
+{
+    return GetKeyPressed() != 0 ||
+           IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ||
+           IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) ||
+           IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE);
+}
+
+static bool HasPlayerFallenBelowPruneLevel(float playerFeetY, int minimumActiveLevel)
+{
+    if (minimumActiveLevel <= WORLD_BLOCK_MIN_LEVEL) {
+        return false;
+    }
+
+    return playerFeetY < world_block_height_for_level(minimumActiveLevel);
+}
 
 static Camera CreateStartupCamera(void)
 {
@@ -143,6 +162,24 @@ static void DrawHud(const Camera *camera,
     DrawText("Projection: PERSPECTIVE", 575, 110, 10, BLACK);
 }
 
+static void DrawCenteredText(const char *text, int y, int fontSize, Color color)
+{
+    const int textWidth = MeasureText(text, fontSize);
+    const int x = (APP_SCREEN_WIDTH - textWidth) / 2;
+
+    DrawText(text, x, y, fontSize, color);
+}
+
+static void DrawGameOver(const app_state *state)
+{
+    const char *scoreText = TextFormat("Highest level reached: %d", state->highest_reached_level);
+
+    ClearBackground(GRAY);
+    DrawCenteredText("YOU LOST", 150, 52, BLACK);
+    DrawCenteredText(scoreText, 220, 24, BLACK);
+    DrawCenteredText("Press any button to exit", 270, 20, BLACK);
+}
+
 static app_state CreateAppState(void)
 {
     app_state state = { 0 };
@@ -171,6 +208,14 @@ static void UpdateAppState(app_state *state)
     const Vector3 previousCameraPosition = state->camera.position;
     const float defaultEyeHeight = player_motion_default_eye_height();
     const float playerRadius = world_collision_player_radius();
+
+    if (state->is_game_over) {
+        if (IsExitButtonPressed()) {
+            state->exit_requested = true;
+        }
+
+        return;
+    }
 
     UpdateCamera(&state->camera, state->camera_mode);
 
@@ -258,6 +303,11 @@ static void UpdateAppState(app_state *state)
         targetGeneratedLevel = state->highest_reached_level + WORLD_BLOCK_GENERATION_AHEAD_LEVELS;
         state->last_generation_target_level = targetGeneratedLevel;
 
+        if (HasPlayerFallenBelowPruneLevel(playerFeetY, minimumActiveLevel)) {
+            state->is_game_over = true;
+            return;
+        }
+
         world_gen_stream_prune_below_level(&state->world_stream,
                                            minimumActiveLevel,
                                            state->blocks,
@@ -274,6 +324,13 @@ static void UpdateAppState(app_state *state)
 static void DrawAppState(const app_state *state)
 {
     BeginDrawing();
+
+    if (state->is_game_over) {
+        DrawGameOver(state);
+        EndDrawing();
+        return;
+    }
+
     ClearBackground(RAYWHITE);
 
     BeginMode3D(state->camera);
@@ -299,7 +356,7 @@ int main(void)
     DisableCursor();
     SetTargetFPS(APP_TARGET_FPS);
 
-    while (!WindowShouldClose())
+    while (!WindowShouldClose() && !state.exit_requested)
     {
         UpdateAppState(&state);
         DrawAppState(&state);
