@@ -33,6 +33,15 @@ typedef struct world_gen_result {
     bool success;
 } world_gen_result;
 
+typedef struct world_gen_stream_state {
+    unsigned int seed;
+    unsigned int rng_state;
+    world_gen_params params;
+    int min_active_level;
+    int max_generated_level;
+    bool initialized;
+} world_gen_stream_state;
+
 world_gen_params world_gen_default_params(void);
 world_gen_params world_gen_difficulty_params(world_gen_difficulty difficulty);
 world_gen_result world_gen_generate(unsigned int seed, size_t count, world_block *out_blocks);
@@ -40,5 +49,18 @@ world_gen_result world_gen_generate_with_params(unsigned int seed,
                                                 size_t count,
                                                 const world_gen_params *params,
                                                 world_block *out_blocks);
+world_gen_stream_state world_gen_stream_create(unsigned int seed, const world_gen_params *params);
+world_gen_result world_gen_stream_initialize(world_gen_stream_state *stream,
+                                             size_t capacity,
+                                             world_block *out_blocks);
+world_gen_result world_gen_stream_generate_until_level(world_gen_stream_state *stream,
+                                                       int target_level,
+                                                       size_t capacity,
+                                                       world_block *blocks,
+                                                       size_t *block_count);
+void world_gen_stream_prune_below_level(world_gen_stream_state *stream,
+                                        int minimum_level,
+                                        world_block *blocks,
+                                        size_t *block_count);
 
 #endif

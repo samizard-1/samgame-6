@@ -169,6 +169,46 @@ static size_t count_blocks_at_level(const world_block *blocks, size_t block_coun
     return count;
 }
 
+static int test_coverage_cell(float value, float minimum, float maximum, int cell_count)
+{
+    const float ratio = (value - minimum) / (maximum - minimum);
+    int cell = (int)(ratio * (float)cell_count);
+
+    if (cell < 0) {
+        cell = 0;
+    }
+
+    if (cell >= cell_count) {
+        cell = cell_count - 1;
+    }
+
+    return cell;
+}
+
+static size_t count_occupied_coverage_cells(const world_block *blocks,
+                                            size_t block_count,
+                                            int min_level,
+                                            int max_level)
+{
+    bool occupied[4][4] = { { false } };
+    size_t occupied_count = 0u;
+    size_t index;
+
+    for (index = 0u; index < block_count; ++index) {
+        if (blocks[index].level >= min_level && blocks[index].level <= max_level) {
+            const int col = test_coverage_cell(blocks[index].x, WORLD_ROOM_MIN_X, WORLD_ROOM_MAX_X, 4);
+            const int row = test_coverage_cell(blocks[index].z, WORLD_ROOM_MIN_Z, WORLD_ROOM_MAX_Z, 4);
+
+            if (!occupied[col][row]) {
+                occupied[col][row] = true;
+                ++occupied_count;
+            }
+        }
+    }
+
+    return occupied_count;
+}
+
 static bool block_traces_to_root(const world_block *blocks,
                                  size_t block_count,
                                  const world_gen_params *params,
@@ -238,6 +278,22 @@ static void assert_all_blocks_are_reachable_from_previous_level(const world_bloc
     size_t index;
 
     for (index = 0u; index < block_count; ++index) {
+        assert(block_has_jumpable_previous_level_anchor(blocks, block_count, params, index, NULL));
+    }
+}
+
+static void assert_stream_blocks_are_reachable_from_window_base(const world_block *blocks,
+                                                                size_t block_count,
+                                                                const world_gen_params *params,
+                                                                int base_level)
+{
+    size_t index;
+
+    for (index = 0u; index < block_count; ++index) {
+        if (blocks[index].level <= base_level) {
+            continue;
+        }
+
         assert(block_has_jumpable_previous_level_anchor(blocks, block_count, params, index, NULL));
     }
 }
@@ -317,10 +373,10 @@ static void resolve_player_against_blocks(const world_collision_walls *walls,
                                            float *x,
                                            float *z)
 {
-    world_climbable_surface surfaces[APP_DEFAULT_BLOCK_COUNT];
+    world_climbable_surface surfaces[APP_MAX_ACTIVE_BLOCKS];
     const float player_top_y = player_feet_y + player_motion_default_eye_height();
 
-    assert(block_count <= APP_DEFAULT_BLOCK_COUNT);
+    assert(block_count <= APP_MAX_ACTIVE_BLOCKS);
     world_climbable_surfaces_from_blocks(blocks, block_count, surfaces);
     world_collision_resolve_player_blocks_xz(walls,
                                              surfaces,
@@ -339,9 +395,9 @@ static float find_floor_y_for_blocks(const world_block *blocks,
                                       float x,
                                       float z)
 {
-    world_climbable_surface surfaces[APP_DEFAULT_BLOCK_COUNT];
+    world_climbable_surface surfaces[APP_MAX_ACTIVE_BLOCKS];
 
-    assert(block_count <= APP_DEFAULT_BLOCK_COUNT);
+    assert(block_count <= APP_MAX_ACTIVE_BLOCKS);
     world_climbable_surfaces_from_blocks(blocks, block_count, surfaces);
     return world_support_find_floor_y(surfaces, block_count, player_radius, player_feet_y, x, z);
 }
@@ -525,6 +581,214 @@ static void test_preferred_gap_params_are_clamped_to_jumpable_range(void)
     assert_all_blocks_are_reachable_from_previous_level(generated, APP_DEFAULT_BLOCK_COUNT, &params);
 }
 
+static void test_stream_generation_initializes_deterministically(void)
+{
+    const world_gen_params params = world_gen_default_params();
+    world_gen_stream_state stream = world_gen_stream_create(2468u, &params);
+    world_gen_stream_state repeated_stream = world_gen_stream_create(2468u, &params);
+    world_block generated[APP_MAX_ACTIVE_BLOCKS];
+    world_block repeated[APP_MAX_ACTIVE_BLOCKS];
+    world_gen_result result;
+    world_gen_result repeated_result;
+    size_t index;
+
+    result = world_gen_stream_initialize(&stream, APP_MAX_ACTIVE_BLOCKS, generated);
+    repeated_result = world_gen_stream_initialize(&repeated_stream, APP_MAX_ACTIVE_BLOCKS, repeated);
+
+    assert(result.success);
+    assert(repeated_result.success);
+    assert(result.generated_count == repeated_result.generated_count);
+    assert(stream.initialized);
+    assert(stream.max_generated_level == WORLD_BLOCK_MIN_LEVEL + WORLD_BLOCK_GENERATION_AHEAD_LEVELS);
+    assert(count_blocks_at_level(generated, result.generated_count, WORLD_BLOCK_MIN_LEVEL) == params.level_one_count);
+    assert(count_blocks_at_level(generated,
+                                 result.generated_count,
+                                 WORLD_BLOCK_MIN_LEVEL + WORLD_BLOCK_GENERATION_AHEAD_LEVELS) >=
+           params.min_blocks_per_level);
+
+    for (index = 0u; index < result.generated_count; ++index) {
+        assert_block_equal(generated[index], repeated[index]);
+    }
+
+    assert_blocks_do_not_overlap_3d(generated, result.generated_count);
+    assert_all_blocks_are_reachable_from_previous_level(generated, result.generated_count, &params);
+    assert_blocks_preserve_overhead_clearance(generated, result.generated_count, &params);
+}
+
+static void test_stream_generate_until_level_is_idempotent(void)
+{
+    world_gen_stream_state stream = world_gen_stream_create(1357u, NULL);
+    world_block generated[APP_MAX_ACTIVE_BLOCKS];
+    world_block before[APP_MAX_ACTIVE_BLOCKS];
+    world_gen_result result;
+    world_gen_result repeated_result;
+    size_t block_count;
+    size_t before_count;
+    size_t index;
+
+    result = world_gen_stream_initialize(&stream, APP_MAX_ACTIVE_BLOCKS, generated);
+    assert(result.success);
+    block_count = result.generated_count;
+    before_count = block_count;
+
+    for (index = 0u; index < block_count; ++index) {
+        before[index] = generated[index];
+    }
+
+    repeated_result = world_gen_stream_generate_until_level(&stream,
+                                                           stream.max_generated_level,
+                                                           APP_MAX_ACTIVE_BLOCKS,
+                                                           generated,
+                                                           &block_count);
+
+    assert(repeated_result.success);
+    assert(block_count == before_count);
+
+    for (index = 0u; index < block_count; ++index) {
+        assert_block_equal(generated[index], before[index]);
+    }
+}
+
+static void test_stream_uses_dense_tower_defaults(void)
+{
+    const world_gen_stream_state stream = world_gen_stream_create(123u, NULL);
+
+    assert(stream.params.level_one_count == WORLD_BLOCK_STREAM_LEVEL_ONE_COUNT);
+    assert(stream.params.min_blocks_per_level == WORLD_BLOCK_STREAM_MIN_BLOCKS_PER_LEVEL);
+    assert(stream.params.max_blocks_per_level == WORLD_BLOCK_STREAM_MAX_BLOCKS_PER_LEVEL);
+    assert(stream.params.min_top_level_paths == WORLD_BLOCK_STREAM_MIN_TOP_LEVEL_PATHS);
+    assert_float_equal(stream.params.coverage_bias, WORLD_BLOCK_STREAM_COVERAGE_BIAS);
+}
+
+static void test_stream_generation_extends_beyond_legacy_max_level(void)
+{
+    const world_gen_params params = world_gen_default_params();
+    const int target_level = WORLD_BLOCK_MAX_LEVEL + 5;
+    world_gen_stream_state stream = world_gen_stream_create(97531u, &params);
+    world_block generated[APP_MAX_ACTIVE_BLOCKS];
+    world_gen_result result;
+    size_t block_count;
+
+    result = world_gen_stream_initialize(&stream, APP_MAX_ACTIVE_BLOCKS, generated);
+    assert(result.success);
+    block_count = result.generated_count;
+
+    result = world_gen_stream_generate_until_level(&stream,
+                                                   target_level,
+                                                   APP_MAX_ACTIVE_BLOCKS,
+                                                   generated,
+                                                   &block_count);
+
+    assert(result.success);
+    assert(stream.max_generated_level == target_level);
+    assert(count_blocks_at_level(generated, block_count, target_level) >= params.min_blocks_per_level);
+    assert(world_block_height_for_level(target_level) > WORLD_BLOCK_MAX_HEIGHT);
+    assert_blocks_do_not_overlap_3d(generated, block_count);
+    assert_all_blocks_are_reachable_from_previous_level(generated, block_count, &params);
+}
+
+static void test_stream_default_generation_is_dense_and_spread_out(void)
+{
+    const int target_level = WORLD_BLOCK_MIN_LEVEL + WORLD_BLOCK_GENERATION_AHEAD_LEVELS;
+    world_gen_stream_state stream = world_gen_stream_create(97531u, NULL);
+    world_block generated[APP_MAX_ACTIVE_BLOCKS];
+    world_gen_result result;
+    size_t block_count;
+    int level;
+    size_t dense_level_count = 0u;
+
+    result = world_gen_stream_initialize(&stream, APP_MAX_ACTIVE_BLOCKS, generated);
+    assert(result.success);
+    block_count = result.generated_count;
+
+    for (level = WORLD_BLOCK_MIN_LEVEL + 1; level <= target_level; ++level) {
+        if (count_blocks_at_level(generated, block_count, level) >= WORLD_BLOCK_STREAM_MIN_BLOCKS_PER_LEVEL) {
+            ++dense_level_count;
+        }
+    }
+
+    assert(dense_level_count >= (size_t)(target_level - WORLD_BLOCK_MIN_LEVEL));
+    assert(count_occupied_coverage_cells(generated, block_count, WORLD_BLOCK_MIN_LEVEL, target_level) >= 8u);
+    assert_blocks_do_not_overlap_3d(generated, block_count);
+    assert_all_blocks_are_reachable_from_previous_level(generated, block_count, &stream.params);
+}
+
+static void test_stream_pruning_keeps_active_window_playable(void)
+{
+    const world_gen_params params = world_gen_default_params();
+    const int target_level = WORLD_BLOCK_MAX_LEVEL + 3;
+    const int minimum_level = 10;
+    world_gen_stream_state stream = world_gen_stream_create(8642u, &params);
+    world_block generated[APP_MAX_ACTIVE_BLOCKS];
+    world_gen_result result;
+    size_t block_count;
+    size_t index;
+
+    result = world_gen_stream_initialize(&stream, APP_MAX_ACTIVE_BLOCKS, generated);
+    assert(result.success);
+    block_count = result.generated_count;
+
+    result = world_gen_stream_generate_until_level(&stream,
+                                                   target_level,
+                                                   APP_MAX_ACTIVE_BLOCKS,
+                                                   generated,
+                                                   &block_count);
+    assert(result.success);
+
+    world_gen_stream_prune_below_level(&stream, minimum_level, generated, &block_count);
+
+    assert(stream.min_active_level == minimum_level);
+    assert(stream.max_generated_level == target_level);
+    assert(block_count > 0u);
+
+    for (index = 0u; index < block_count; ++index) {
+        assert(generated[index].level >= minimum_level);
+    }
+
+    assert_blocks_do_not_overlap_3d(generated, block_count);
+    assert_stream_blocks_are_reachable_from_window_base(generated, block_count, &params, minimum_level);
+
+    result = world_gen_stream_generate_until_level(&stream,
+                                                   target_level + 2,
+                                                   APP_MAX_ACTIVE_BLOCKS,
+                                                   generated,
+                                                   &block_count);
+    assert(result.success);
+    assert(stream.max_generated_level == target_level + 2);
+}
+
+static void test_stream_generates_and_prunes_through_level_200(void)
+{
+    enum { TARGET_LEVEL = 200 };
+    world_gen_stream_state stream = world_gen_stream_create(24680u, NULL);
+    world_block generated[APP_MAX_ACTIVE_BLOCKS];
+    world_gen_result result;
+    size_t block_count;
+    int player_level;
+
+    result = world_gen_stream_initialize(&stream, APP_MAX_ACTIVE_BLOCKS, generated);
+    assert(result.success);
+    block_count = result.generated_count;
+
+    for (player_level = WORLD_BLOCK_MIN_LEVEL; player_level <= TARGET_LEVEL; ++player_level) {
+        const int minimum_level = player_level - WORLD_BLOCK_ACTIVE_BEHIND_LEVELS;
+        const int target_level = player_level + WORLD_BLOCK_GENERATION_AHEAD_LEVELS;
+
+        world_gen_stream_prune_below_level(&stream, minimum_level, generated, &block_count);
+        result = world_gen_stream_generate_until_level(&stream,
+                                                       target_level,
+                                                       APP_MAX_ACTIVE_BLOCKS,
+                                                       generated,
+                                                       &block_count);
+
+        assert(result.success);
+        assert(stream.max_generated_level >= target_level);
+        assert(block_count <= APP_MAX_ACTIVE_BLOCKS);
+        assert_blocks_do_not_overlap_3d(generated, block_count);
+        assert_stream_blocks_are_reachable_from_window_base(generated, block_count, &stream.params, stream.min_active_level);
+    }
+}
+
 static void test_generation_reports_failure_when_capacity_is_exhausted(void)
 {
     world_block generated[3000u];
@@ -556,18 +820,19 @@ static void test_block_volume_overlap_requires_all_three_axes(void)
     assert(blocks_overlap_3d(blocks[0], blocks[1]));
 }
 
-static void test_block_create_keeps_level_and_height_aligned(void)
+static void test_block_create_keeps_unbounded_level_and_height_aligned(void)
 {
     const world_block low = world_block_create(1.0f, 2.0f, WORLD_BLOCK_MIN_LEVEL - 1, 3.0f, 4.0f);
     const world_block high = world_block_create(4.0f, 5.0f, WORLD_BLOCK_MAX_LEVEL + 1, 6.0f, 7.0f);
 
-    assert(low.level == WORLD_BLOCK_MIN_LEVEL);
+    assert(low.level == WORLD_BLOCK_MIN_LEVEL - 1);
     assert_float_equal(low.height, world_block_height_for_level(low.level));
     assert_float_equal(low.bottom_y, 0.0f);
     assert_float_equal(low.half_x, 3.0f);
     assert_float_equal(low.half_z, 4.0f);
-    assert(high.level == WORLD_BLOCK_MAX_LEVEL);
+    assert(high.level == WORLD_BLOCK_MAX_LEVEL + 1);
     assert_float_equal(high.height, world_block_height_for_level(high.level));
+    assert(high.height > WORLD_BLOCK_MAX_HEIGHT);
     assert_float_equal(high.bottom_y, high.height - WORLD_BLOCK_HEIGHT_Y);
     assert_float_equal(high.half_x, 6.0f);
     assert_float_equal(high.half_z, 7.0f);
@@ -587,6 +852,21 @@ static void test_default_roof_clears_future_block_top_jump(void)
 {
     assert_float_equal(world_layout_default_roof_y(), WORLD_ROOF_UNDERSIDE_Y);
     assert(world_layout_default_roof_y() > WORLD_BLOCK_MAX_HEIGHT + player_motion_default_eye_height());
+}
+
+static void test_no_ceiling_fallback_allows_infinite_climb(void)
+{
+    const float no_ceiling_y = 1000000.0f;
+    const float ceiling_y = world_collision_find_ceiling_y(NULL,
+                                                           0u,
+                                                           world_collision_player_radius(),
+                                                           100.0f,
+                                                           100.0f + player_motion_default_eye_height(),
+                                                           0.0f,
+                                                           0.0f,
+                                                           no_ceiling_y);
+
+    assert_float_equal(ceiling_y, no_ceiling_y);
 }
 
 static void test_rendered_walls_push_candidates_back_inside(void)
@@ -948,10 +1228,18 @@ int main(void)
     test_generation_params_control_frontier_width_and_gap_mix();
     test_difficulty_controls_average_gap_distance();
     test_preferred_gap_params_are_clamped_to_jumpable_range();
+    test_stream_generation_initializes_deterministically();
+    test_stream_generate_until_level_is_idempotent();
+    test_stream_uses_dense_tower_defaults();
+    test_stream_generation_extends_beyond_legacy_max_level();
+    test_stream_default_generation_is_dense_and_spread_out();
+    test_stream_pruning_keeps_active_window_playable();
+    test_stream_generates_and_prunes_through_level_200();
     test_generation_reports_failure_when_capacity_is_exhausted();
-    test_block_create_keeps_level_and_height_aligned();
+    test_block_create_keeps_unbounded_level_and_height_aligned();
     test_default_collision_walls();
     test_default_roof_clears_future_block_top_jump();
+    test_no_ceiling_fallback_allows_infinite_climb();
     test_rendered_walls_push_candidates_back_inside();
     test_min_z_wall_blocks_escape();
     test_blocks_can_share_x_and_y_when_separated_on_z();

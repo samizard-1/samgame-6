@@ -12,6 +12,7 @@ enum {
     WORLD_GEN_OFFSET_ATTEMPTS = 96,
     WORLD_GEN_BROAD_ATTEMPTS = 64,
     WORLD_GEN_RETRY_ATTEMPTS = 16,
+    WORLD_GEN_STREAM_RETRY_ATTEMPTS = 64,
     WORLD_GEN_COVERAGE_COLS = 4,
     WORLD_GEN_COVERAGE_ROWS = 4,
     WORLD_GEN_LEVEL_SLOTS = WORLD_BLOCK_MAX_LEVEL + 1
@@ -249,6 +250,19 @@ static world_gen_params world_gen_sanitize_params(const world_gen_params *params
     }
 
     return active;
+}
+
+static world_gen_params world_gen_stream_default_params(void)
+{
+    world_gen_params params = world_gen_default_params();
+
+    params.level_one_count = WORLD_BLOCK_STREAM_LEVEL_ONE_COUNT;
+    params.min_blocks_per_level = WORLD_BLOCK_STREAM_MIN_BLOCKS_PER_LEVEL;
+    params.max_blocks_per_level = WORLD_BLOCK_STREAM_MAX_BLOCKS_PER_LEVEL;
+    params.min_top_level_paths = WORLD_BLOCK_STREAM_MIN_TOP_LEVEL_PATHS;
+    params.coverage_bias = WORLD_BLOCK_STREAM_COVERAGE_BIAS;
+
+    return params;
 }
 
 static float world_gen_gap_distance(unsigned int *state, const world_gen_params *params)
@@ -535,6 +549,134 @@ static world_gen_result world_gen_failure(size_t generated_count)
     return result;
 }
 
+static world_gen_level_index world_gen_find_level(const world_block *blocks, size_t block_count, int level)
+{
+    world_gen_level_index index = { 0u, 0u };
+    size_t block_index;
+
+    for (block_index = 0u; block_index < block_count; ++block_index) {
+        if (blocks[block_index].level == level) {
+            if (index.count == 0u) {
+                index.start = block_index;
+            }
+
+            ++index.count;
+        } else if (index.count > 0u) {
+            break;
+        }
+    }
+
+    return index;
+}
+
+static size_t world_gen_stream_target_count_for_level(unsigned int *state, const world_gen_params *params)
+{
+    const size_t range = params->max_blocks_per_level - params->min_blocks_per_level + 1u;
+    size_t target = params->min_blocks_per_level;
+
+    if (range > 1u) {
+        target += world_gen_index(state, range);
+    }
+
+    if (target < params->min_top_level_paths) {
+        target = params->min_top_level_paths;
+    }
+
+    return target;
+}
+
+static world_gen_result world_gen_stream_append_level(world_gen_stream_state *stream,
+                                                      int level,
+                                                      size_t capacity,
+                                                      world_block *blocks,
+                                                      size_t *block_count)
+{
+    const world_layout_bounds bounds = world_layout_default_bounds();
+    const world_gen_level_index previous_level = world_gen_find_level(blocks, *block_count, level - 1);
+    world_gen_result last_result = world_gen_failure(*block_count);
+    unsigned int attempt_seed = stream->rng_state;
+    int attempt;
+
+    if (previous_level.count == 0u) {
+        return world_gen_failure(*block_count);
+    }
+
+    if (*block_count >= capacity) {
+        return world_gen_failure(*block_count);
+    }
+
+    for (attempt = 0; attempt < WORLD_GEN_STREAM_RETRY_ATTEMPTS; ++attempt) {
+        const size_t start_count = *block_count;
+        size_t target;
+        size_t placed_this_level = 0u;
+        bool failed = false;
+
+        stream->rng_state = attempt_seed;
+        target = world_gen_stream_target_count_for_level(&stream->rng_state, &stream->params);
+
+        if (*block_count + target > capacity) {
+            target = capacity - *block_count;
+        }
+
+        if (target == 0u) {
+            return world_gen_failure(*block_count);
+        }
+
+        while (placed_this_level < target) {
+            const world_block *anchors = &blocks[previous_level.start];
+            size_t anchor_count = previous_level.count;
+            float x;
+            float z;
+
+            if (placed_this_level < stream->params.min_top_level_paths &&
+                placed_this_level < previous_level.count) {
+                const size_t path_count = stream->params.min_top_level_paths < previous_level.count ?
+                                          stream->params.min_top_level_paths :
+                                          previous_level.count;
+                const size_t segment_start = (placed_this_level * previous_level.count) / path_count;
+                const size_t segment_end = ((placed_this_level + 1u) * previous_level.count) / path_count;
+                size_t segment_count = segment_end - segment_start;
+
+                if (segment_count == 0u) {
+                    segment_count = 1u;
+                }
+
+                anchors = &blocks[previous_level.start + segment_start + world_gen_index(&stream->rng_state, segment_count)];
+                anchor_count = 1u;
+            }
+
+            if (!world_gen_place_near_frontier(&stream->rng_state,
+                                               &bounds,
+                                               &stream->params,
+                                               blocks,
+                                               *block_count,
+                                               anchors,
+                                               anchor_count,
+                                               level,
+                                               &x,
+                                               &z)) {
+                failed = true;
+                break;
+            }
+
+            blocks[*block_count] = world_block_create(x, z, level, bounds.block_half_x, bounds.block_half_z);
+            ++*block_count;
+            ++placed_this_level;
+        }
+
+        if (!failed) {
+            stream->max_generated_level = level;
+            return world_gen_success(*block_count);
+        }
+
+        *block_count = start_count;
+        last_result = world_gen_failure(*block_count);
+        (void)world_gen_next(&attempt_seed);
+    }
+
+    return last_result;
+}
+
 static world_gen_result world_gen_generate_once(unsigned int seed,
                                                 size_t count,
                                                 const world_gen_params *params,
@@ -706,4 +848,177 @@ world_gen_result world_gen_generate_with_params(unsigned int seed,
     }
 
     return last_result;
+}
+
+world_gen_stream_state world_gen_stream_create(unsigned int seed, const world_gen_params *params)
+{
+    world_gen_stream_state stream;
+    world_gen_params default_params = world_gen_stream_default_params();
+
+    stream.seed = seed;
+    stream.rng_state = seed;
+    stream.params = world_gen_sanitize_params(params != NULL ? params : &default_params);
+    stream.min_active_level = WORLD_BLOCK_MIN_LEVEL;
+    stream.max_generated_level = WORLD_BLOCK_MIN_LEVEL - 1;
+    stream.initialized = false;
+
+    return stream;
+}
+
+world_gen_result world_gen_stream_initialize(world_gen_stream_state *stream,
+                                             size_t capacity,
+                                             world_block *out_blocks)
+{
+    const world_layout_bounds bounds = world_layout_default_bounds();
+    world_gen_result last_result = world_gen_failure(0u);
+    unsigned int attempt_seed;
+    int attempt;
+
+    if (stream == NULL) {
+        return world_gen_failure(0u);
+    }
+
+    if (capacity == 0u) {
+        return world_gen_failure(0u);
+    }
+
+    if (out_blocks == NULL) {
+        return world_gen_failure(0u);
+    }
+
+    attempt_seed = stream->seed;
+
+    for (attempt = 0; attempt < WORLD_GEN_RETRY_ATTEMPTS; ++attempt) {
+        size_t generated_count = 0u;
+        size_t target = stream->params.level_one_count;
+        size_t index;
+        world_gen_result result;
+
+        stream->rng_state = attempt_seed;
+        stream->min_active_level = WORLD_BLOCK_MIN_LEVEL;
+        stream->max_generated_level = WORLD_BLOCK_MIN_LEVEL - 1;
+        stream->initialized = false;
+
+        if (target > capacity) {
+            target = capacity;
+        }
+
+        for (index = 0u; index < target; ++index) {
+            float x;
+            float z;
+
+            if (!world_gen_place_level_one(&stream->rng_state,
+                                           &bounds,
+                                           &stream->params,
+                                           out_blocks,
+                                           generated_count,
+                                           &x,
+                                           &z)) {
+                result = world_gen_failure(generated_count);
+                break;
+            }
+
+            out_blocks[generated_count] = world_block_create(x,
+                                                             z,
+                                                             WORLD_BLOCK_MIN_LEVEL,
+                                                             bounds.block_half_x,
+                                                             bounds.block_half_z);
+            ++generated_count;
+        }
+
+        if (generated_count == target) {
+            stream->max_generated_level = WORLD_BLOCK_MIN_LEVEL;
+            stream->initialized = true;
+
+            result = world_gen_stream_generate_until_level(stream,
+                                                           WORLD_BLOCK_MIN_LEVEL + WORLD_BLOCK_GENERATION_AHEAD_LEVELS,
+                                                           capacity,
+                                                           out_blocks,
+                                                           &generated_count);
+        }
+
+        if (result.success) {
+            return result;
+        }
+
+        last_result = result;
+        (void)world_gen_next(&attempt_seed);
+    }
+
+    stream->initialized = false;
+
+    return last_result;
+}
+
+world_gen_result world_gen_stream_generate_until_level(world_gen_stream_state *stream,
+                                                       int target_level,
+                                                       size_t capacity,
+                                                       world_block *blocks,
+                                                       size_t *block_count)
+{
+    if (stream == NULL || blocks == NULL || block_count == NULL) {
+        return world_gen_failure(0u);
+    }
+
+    if (!stream->initialized) {
+        return world_gen_failure(*block_count);
+    }
+
+    if (*block_count > capacity) {
+        return world_gen_failure(*block_count);
+    }
+
+    if (target_level < WORLD_BLOCK_MIN_LEVEL) {
+        target_level = WORLD_BLOCK_MIN_LEVEL;
+    }
+
+    while (stream->max_generated_level < target_level) {
+        const int next_level = stream->max_generated_level + 1;
+        const world_gen_result result = world_gen_stream_append_level(stream,
+                                                                      next_level,
+                                                                      capacity,
+                                                                      blocks,
+                                                                      block_count);
+
+        if (!result.success) {
+            return result;
+        }
+    }
+
+    return world_gen_success(*block_count);
+}
+
+void world_gen_stream_prune_below_level(world_gen_stream_state *stream,
+                                        int minimum_level,
+                                        world_block *blocks,
+                                        size_t *block_count)
+{
+    size_t read_index;
+    size_t write_index = 0u;
+
+    if (stream == NULL || blocks == NULL || block_count == NULL) {
+        return;
+    }
+
+    if (minimum_level < WORLD_BLOCK_MIN_LEVEL) {
+        minimum_level = WORLD_BLOCK_MIN_LEVEL;
+    }
+
+    for (read_index = 0u; read_index < *block_count; ++read_index) {
+        if (blocks[read_index].level >= minimum_level) {
+            if (write_index != read_index) {
+                blocks[write_index] = blocks[read_index];
+            }
+
+            ++write_index;
+        }
+    }
+
+    *block_count = write_index;
+    stream->min_active_level = minimum_level;
+
+    if (*block_count == 0u) {
+        stream->max_generated_level = minimum_level - 1;
+        stream->initialized = false;
+    }
 }
