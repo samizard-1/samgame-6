@@ -16,10 +16,10 @@ typedef struct app_state {
     int camera_mode;
     player_motion_state player_motion;
     player_pose player_pose;
-    world_column columns[APP_DEFAULT_COLUMN_COUNT];
-    world_climbable_surface surfaces[APP_DEFAULT_COLUMN_COUNT];
+    world_block blocks[APP_DEFAULT_BLOCK_COUNT];
+    world_climbable_surface surfaces[APP_DEFAULT_BLOCK_COUNT];
     world_layout_bounds bounds;
-    size_t column_count;
+    size_t block_count;
     unsigned int world_seed;
 } app_state;
 
@@ -37,7 +37,7 @@ static Camera CreateStartupCamera(void)
     return camera;
 }
 
-static Color GetColumnColor(size_t index)
+static Color GetBlockColor(size_t index)
 {
     static const Color palette[] = {
         { 64, 145, 255, 255 },
@@ -50,17 +50,19 @@ static Color GetColumnColor(size_t index)
     return palette[index % (sizeof(palette) / sizeof(palette[0]))];
 }
 
-static void DrawGeneratedColumns(const world_column *columns, size_t count)
+static void DrawGeneratedBlocks(const world_block *blocks, size_t count)
 {
     for (size_t index = 0; index < count; ++index)
     {
-        const world_column column = columns[index];
-        const Vector3 position = { column.x, column.height * 0.5f, column.z };
-        const float width = column.radius * 2.0f;
-        const Color fill = GetColumnColor(index);
+        const world_block block = blocks[index];
+        const float block_height = block.height - block.bottom_y;
+        const Vector3 position = { block.x, block.bottom_y + (block_height * 0.5f), block.z };
+        const float width = block.half_x * 2.0f;
+        const float depth = block.half_z * 2.0f;
+        const Color fill = GetBlockColor(index);
 
-        DrawCube(position, width, column.height, width, fill);
-        DrawCubeWires(position, width, column.height, width, MAROON);
+        DrawCube(position, width, block_height, depth, fill);
+        DrawCubeWires(position, width, block_height, depth, MAROON);
     }
 }
 
@@ -68,15 +70,15 @@ static void DrawRoom(const world_layout_bounds *bounds)
 {
     const float wall_height = world_layout_default_roof_y();
     const float wall_center_y = wall_height * 0.5f;
-    const float width = (bounds->max_x - bounds->min_x) + (bounds->radius * 2.0f);
-    const float depth = (bounds->max_z - bounds->min_z) + (bounds->radius * 2.0f);
+    const float width = (bounds->max_x - bounds->min_x) + (bounds->block_half_x * 2.0f);
+    const float depth = (bounds->max_z - bounds->min_z) + (bounds->block_half_z * 2.0f);
     const float roof_center_y = wall_height + (WORLD_ROOF_THICKNESS * 0.5f);
 
     DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ width, depth }, LIGHTGRAY);
-    DrawCube((Vector3){ bounds->min_x - bounds->radius, wall_center_y, 0.0f }, WORLD_WALL_THICKNESS, wall_height, depth, BLUE);
-    DrawCube((Vector3){ bounds->max_x + bounds->radius, wall_center_y, 0.0f }, WORLD_WALL_THICKNESS, wall_height, depth, LIME);
-    DrawCube((Vector3){ 0.0f, wall_center_y, bounds->min_z - bounds->radius }, width, wall_height, WORLD_WALL_THICKNESS, VIOLET);
-    DrawCube((Vector3){ 0.0f, wall_center_y, bounds->max_z + bounds->radius }, width, wall_height, WORLD_WALL_THICKNESS, GOLD);
+    DrawCube((Vector3){ bounds->min_x - bounds->block_half_x, wall_center_y, 0.0f }, WORLD_WALL_THICKNESS, wall_height, depth, BLUE);
+    DrawCube((Vector3){ bounds->max_x + bounds->block_half_x, wall_center_y, 0.0f }, WORLD_WALL_THICKNESS, wall_height, depth, LIME);
+    DrawCube((Vector3){ 0.0f, wall_center_y, bounds->min_z - bounds->block_half_z }, width, wall_height, WORLD_WALL_THICKNESS, VIOLET);
+    DrawCube((Vector3){ 0.0f, wall_center_y, bounds->max_z + bounds->block_half_z }, width, wall_height, WORLD_WALL_THICKNESS, GOLD);
     DrawCube((Vector3){ 0.0f, roof_center_y, 0.0f }, width, WORLD_ROOF_THICKNESS, depth, Fade(SKYBLUE, 0.35f));
 }
 
@@ -112,9 +114,9 @@ static app_state CreateAppState(void)
     state.bounds = world_layout_default_bounds();
     state.world_seed = (unsigned int)time(NULL);
 
-    result = world_gen_generate(state.world_seed, APP_DEFAULT_COLUMN_COUNT, state.columns);
-    state.column_count = result.generated_count;
-    world_climbable_surfaces_from_columns(state.columns, state.column_count, state.surfaces);
+    result = world_gen_generate(state.world_seed, APP_DEFAULT_BLOCK_COUNT, state.blocks);
+    state.block_count = result.generated_count;
+    world_climbable_surfaces_from_blocks(state.blocks, state.block_count, state.surfaces);
 
     return state;
 }
@@ -135,15 +137,17 @@ static void UpdateAppState(app_state *state)
     {
         const world_collision_walls collisionWalls = world_collision_default_walls();
         const float playerFeetY = state->player_pose.eye_y - defaultEyeHeight;
+        const float playerTopY = state->player_pose.eye_y;
         float resolvedX = state->camera.position.x;
         float resolvedZ = state->camera.position.z;
 
-        world_collision_resolve_player_surfaces_xz(
+        world_collision_resolve_player_blocks_xz(
             &collisionWalls,
             state->surfaces,
-            state->column_count,
+            state->block_count,
             playerRadius,
             playerFeetY,
+            playerTopY,
             &resolvedX,
             &resolvedZ
         );
@@ -160,18 +164,27 @@ static void UpdateAppState(app_state *state)
 
     {
         const float playerFeetY = state->player_pose.eye_y - defaultEyeHeight;
+        const float playerTopY = state->player_pose.eye_y;
         const float supportY = world_support_find_floor_y(state->surfaces,
-                                                          state->column_count,
+                                                          state->block_count,
                                                           playerRadius,
                                                           playerFeetY,
                                                           state->player_pose.x,
                                                           state->player_pose.z);
         const float supportEyeY = supportY + defaultEyeHeight;
+        const float ceilingY = world_collision_find_ceiling_y(state->surfaces,
+                                                             state->block_count,
+                                                             playerRadius,
+                                                             playerFeetY,
+                                                             playerTopY,
+                                                             state->player_pose.x,
+                                                             state->player_pose.z,
+                                                             world_layout_default_roof_y());
 
         player_motion_update(&state->player_motion,
                              GetFrameTime(),
                              supportEyeY,
-                             world_layout_default_roof_y());
+                             ceilingY);
     }
 
     if (state->camera.position.y != state->player_motion.eye_y) {
@@ -190,7 +203,7 @@ static void DrawAppState(const app_state *state)
 
     BeginMode3D(state->camera);
     DrawRoom(&state->bounds);
-    DrawGeneratedColumns(state->columns, state->column_count);
+    DrawGeneratedBlocks(state->blocks, state->block_count);
     EndMode3D();
 
     DrawHud(&state->camera, state->world_seed);

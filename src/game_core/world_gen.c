@@ -67,37 +67,54 @@ static float world_gen_distance_xz(float left_x, float left_z, float right_x, fl
     return sqrtf((delta_x * delta_x) + (delta_z * delta_z));
 }
 
-static bool world_gen_column_footprints_overlap(float left_x,
-                                                float left_z,
-                                                float left_radius,
-                                                float right_x,
-                                                float right_z,
-                                                float right_radius)
+static bool world_gen_ranges_overlap(float left_min, float left_max, float right_min, float right_max)
 {
-    const float min_clearance = left_radius + right_radius;
-
-    return fabsf(left_x - right_x) < min_clearance && fabsf(left_z - right_z) < min_clearance;
+    return left_min < right_max && right_min < left_max;
 }
 
-static bool world_gen_column_position_is_clear(float x,
-                                               float z,
-                                               float radius,
-                                               const world_column *columns,
-                                               size_t column_count)
+static float world_gen_block_bottom_y_for_level(int level)
 {
-    size_t column_index;
+    const float top_y = world_block_height_for_level(level);
 
-    if (columns == NULL) {
+    return fmaxf(0.0f, top_y - WORLD_BLOCK_HEIGHT_Y);
+}
+
+static bool world_gen_block_volumes_overlap(float left_x,
+                                            float left_bottom_y,
+                                            float left_height,
+                                            float left_z,
+                                            float left_half_x,
+                                            float left_half_z,
+                                            const world_block *right)
+{
+    if (right == NULL) {
+        return false;
+    }
+
+    return world_gen_ranges_overlap(left_x - left_half_x, left_x + left_half_x,
+                                    right->x - right->half_x, right->x + right->half_x) &&
+           world_gen_ranges_overlap(left_bottom_y, left_height, right->bottom_y, right->height) &&
+           world_gen_ranges_overlap(left_z - left_half_z, left_z + left_half_z,
+                                    right->z - right->half_z, right->z + right->half_z);
+}
+
+static bool world_gen_block_position_is_clear(float x,
+                                              float z,
+                                              float bottom_y,
+                                              float height,
+                                              float half_x,
+                                              float half_z,
+                                              const world_block *blocks,
+                                              size_t block_count)
+{
+    size_t block_index;
+
+    if (blocks == NULL) {
         return true;
     }
 
-    for (column_index = 0u; column_index < column_count; ++column_index) {
-        if (world_gen_column_footprints_overlap(x,
-                                                z,
-                                                radius,
-                                                columns[column_index].x,
-                                                columns[column_index].z,
-                                                columns[column_index].radius)) {
+    for (block_index = 0u; block_index < block_count; ++block_index) {
+        if (world_gen_block_volumes_overlap(x, bottom_y, height, z, half_x, half_z, &blocks[block_index])) {
             return false;
         }
     }
@@ -121,7 +138,7 @@ static world_gen_params world_gen_sanitize_params(const world_gen_params *params
         active.max_jumpable_distance = active.min_jumpable_distance;
     }
 
-    active.nearby_pillar_chance = world_gen_chance(active.nearby_pillar_chance);
+    active.nearby_block_chance = world_gen_chance(active.nearby_block_chance);
     active.upward_step_chance = world_gen_chance(active.upward_step_chance);
 
     if (active.max_extra_level_delta < 0) {
@@ -134,9 +151,12 @@ static world_gen_params world_gen_sanitize_params(const world_gen_params *params
 static bool world_gen_place_near(unsigned int *state,
                                  const world_layout_bounds *bounds,
                                  const world_gen_params *params,
-                                 const world_column *columns,
-                                 size_t column_count,
-                                 float radius,
+                                 const world_block *blocks,
+                                 size_t block_count,
+                                 float bottom_y,
+                                 float height,
+                                 float half_x,
+                                 float half_z,
                                  float anchor_x,
                                  float anchor_z,
                                  float *out_x,
@@ -159,7 +179,7 @@ static bool world_gen_place_near(unsigned int *state,
 
         if (actual_distance >= params->min_jumpable_distance &&
             actual_distance <= params->max_jumpable_distance &&
-            world_gen_column_position_is_clear(candidate_x, candidate_z, radius, columns, column_count)) {
+            world_gen_block_position_is_clear(candidate_x, candidate_z, bottom_y, height, half_x, half_z, blocks, block_count)) {
             *out_x = candidate_x;
             *out_z = candidate_z;
             return true;
@@ -186,7 +206,7 @@ static bool world_gen_place_near(unsigned int *state,
                                           bounds->max_z);
         }
 
-        if (world_gen_column_position_is_clear(candidate_x, candidate_z, radius, columns, column_count)) {
+        if (world_gen_block_position_is_clear(candidate_x, candidate_z, bottom_y, height, half_x, half_z, blocks, block_count)) {
             *out_x = candidate_x;
             *out_z = candidate_z;
             return true;
@@ -198,9 +218,12 @@ static bool world_gen_place_near(unsigned int *state,
 
 static bool world_gen_place_clear_random(unsigned int *state,
                                          const world_layout_bounds *bounds,
-                                         const world_column *columns,
-                                         size_t column_count,
-                                         float radius,
+                                         const world_block *blocks,
+                                         size_t block_count,
+                                         float bottom_y,
+                                         float height,
+                                         float half_x,
+                                         float half_z,
                                          float *out_x,
                                          float *out_z)
 {
@@ -211,18 +234,18 @@ static bool world_gen_place_clear_random(unsigned int *state,
         const float candidate_x = world_gen_scale(world_gen_next(state), bounds->min_x, bounds->max_x);
         const float candidate_z = world_gen_scale(world_gen_next(state), bounds->min_z, bounds->max_z);
 
-        if (world_gen_column_position_is_clear(candidate_x, candidate_z, radius, columns, column_count)) {
+        if (world_gen_block_position_is_clear(candidate_x, candidate_z, bottom_y, height, half_x, half_z, blocks, block_count)) {
             *out_x = candidate_x;
             *out_z = candidate_z;
             return true;
         }
     }
 
-    for (z = bounds->min_z; z <= bounds->max_z; z += radius * 2.0f) {
+    for (z = bounds->min_z; z <= bounds->max_z; z += half_z * 2.0f) {
         float x;
 
-        for (x = bounds->min_x; x <= bounds->max_x; x += radius * 2.0f) {
-            if (world_gen_column_position_is_clear(x, z, radius, columns, column_count)) {
+        for (x = bounds->min_x; x <= bounds->max_x; x += half_x * 2.0f) {
+            if (world_gen_block_position_is_clear(x, z, bottom_y, height, half_x, half_z, blocks, block_count)) {
                 *out_x = x;
                 *out_z = z;
                 return true;
@@ -257,27 +280,27 @@ world_gen_params world_gen_default_params(void)
 {
     world_gen_params params;
 
-    params.guaranteed_chain_length = WORLD_PILLAR_DEFAULT_CHAIN_LENGTH;
-    params.min_jumpable_distance = WORLD_PILLAR_DEFAULT_MIN_JUMPABLE_DISTANCE;
-    params.max_jumpable_distance = WORLD_PILLAR_DEFAULT_MAX_JUMPABLE_DISTANCE;
-    params.nearby_pillar_chance = WORLD_PILLAR_DEFAULT_NEARBY_CHANCE;
-    params.upward_step_chance = WORLD_PILLAR_DEFAULT_UPWARD_CHANCE;
-    params.max_extra_level_delta = WORLD_PILLAR_DEFAULT_MAX_EXTRA_LEVEL_DELTA;
+    params.guaranteed_chain_length = WORLD_BLOCK_DEFAULT_CHAIN_LENGTH;
+    params.min_jumpable_distance = WORLD_BLOCK_DEFAULT_MIN_JUMPABLE_DISTANCE;
+    params.max_jumpable_distance = WORLD_BLOCK_DEFAULT_MAX_JUMPABLE_DISTANCE;
+    params.nearby_block_chance = WORLD_BLOCK_DEFAULT_NEARBY_CHANCE;
+    params.upward_step_chance = WORLD_BLOCK_DEFAULT_UPWARD_CHANCE;
+    params.max_extra_level_delta = WORLD_BLOCK_DEFAULT_MAX_EXTRA_LEVEL_DELTA;
 
     return params;
 }
 
-world_gen_result world_gen_generate(unsigned int seed, size_t count, world_column *out_columns)
+world_gen_result world_gen_generate(unsigned int seed, size_t count, world_block *out_blocks)
 {
     const world_gen_params params = world_gen_default_params();
 
-    return world_gen_generate_with_params(seed, count, &params, out_columns);
+    return world_gen_generate_with_params(seed, count, &params, out_blocks);
 }
 
 world_gen_result world_gen_generate_with_params(unsigned int seed,
                                                 size_t count,
                                                 const world_gen_params *params,
-                                                world_column *out_columns)
+                                                world_block *out_blocks)
 {
     world_layout_bounds bounds;
     world_gen_params active_params;
@@ -289,7 +312,7 @@ world_gen_result world_gen_generate_with_params(unsigned int seed,
         return world_gen_success(0u);
     }
 
-    if (out_columns == NULL) {
+    if (out_blocks == NULL) {
         return world_gen_failure(0u);
     }
 
@@ -302,8 +325,8 @@ world_gen_result world_gen_generate_with_params(unsigned int seed,
         chain_length = count;
     }
 
-    if (chain_length > (size_t)(WORLD_PILLAR_MAX_LEVEL - WORLD_PILLAR_MIN_LEVEL + 1)) {
-        chain_length = (size_t)(WORLD_PILLAR_MAX_LEVEL - WORLD_PILLAR_MIN_LEVEL + 1);
+    if (chain_length > (size_t)(WORLD_BLOCK_MAX_LEVEL - WORLD_BLOCK_MIN_LEVEL + 1)) {
+        chain_length = (size_t)(WORLD_BLOCK_MAX_LEVEL - WORLD_BLOCK_MIN_LEVEL + 1);
     }
 
     if (chain_length > 0u) {
@@ -315,35 +338,63 @@ world_gen_result world_gen_generate_with_params(unsigned int seed,
         float x = world_gen_scale(world_gen_next(&state), start_min_x, start_max_x);
         float z = world_gen_scale(world_gen_next(&state), start_min_z, start_max_z);
 
-        if (!world_gen_column_position_is_clear(x, z, bounds.radius, out_columns, 0u) &&
-            !world_gen_place_clear_random(&state, &bounds, out_columns, 0u, bounds.radius, &x, &z)) {
+        if (!world_gen_block_position_is_clear(x,
+                                               z,
+                                               world_gen_block_bottom_y_for_level(WORLD_BLOCK_MIN_LEVEL),
+                                               world_block_height_for_level(WORLD_BLOCK_MIN_LEVEL),
+                                               bounds.block_half_x,
+                                               bounds.block_half_z,
+                                               out_blocks,
+                                               0u) &&
+            !world_gen_place_clear_random(&state,
+                                          &bounds,
+                                          out_blocks,
+                                          0u,
+                                          world_gen_block_bottom_y_for_level(WORLD_BLOCK_MIN_LEVEL),
+                                          world_block_height_for_level(WORLD_BLOCK_MIN_LEVEL),
+                                          bounds.block_half_x,
+                                          bounds.block_half_z,
+                                          &x,
+                                          &z)) {
             return world_gen_failure(0u);
         }
 
-        out_columns[0] = world_column_create(x, z, WORLD_PILLAR_MIN_LEVEL, bounds.radius);
+        out_blocks[0] = world_block_create(x, z, WORLD_BLOCK_MIN_LEVEL, bounds.block_half_x, bounds.block_half_z);
     }
 
     for (index = 1u; index < chain_length; ++index) {
         float x;
         float z;
-        const world_column *anchor = &out_columns[index - 1u];
+        const world_block *anchor = &out_blocks[index - 1u];
         const int level = anchor->level + 1;
 
         if (!world_gen_place_near(&state,
                                   &bounds,
                                   &active_params,
-                                  out_columns,
+                                  out_blocks,
                                   index,
-                                  bounds.radius,
+                                  world_gen_block_bottom_y_for_level(level),
+                                  world_block_height_for_level(level),
+                                  bounds.block_half_x,
+                                  bounds.block_half_z,
                                   anchor->x,
                                   anchor->z,
                                   &x,
                                   &z) &&
-            !world_gen_place_clear_random(&state, &bounds, out_columns, index, bounds.radius, &x, &z)) {
+            !world_gen_place_clear_random(&state,
+                                          &bounds,
+                                          out_blocks,
+                                          index,
+                                          world_gen_block_bottom_y_for_level(level),
+                                          world_block_height_for_level(level),
+                                          bounds.block_half_x,
+                                          bounds.block_half_z,
+                                          &x,
+                                          &z)) {
             return world_gen_failure(index);
         }
 
-        out_columns[index] = world_column_create(x, z, level, bounds.radius);
+        out_blocks[index] = world_block_create(x, z, level, bounds.block_half_x, bounds.block_half_z);
     }
 
     for (index = chain_length; index < count; ++index) {
@@ -351,46 +402,67 @@ world_gen_result world_gen_generate_with_params(unsigned int seed,
         float x;
         float z;
 
-        if (index > 0u && world_gen_roll(&state, active_params.nearby_pillar_chance)) {
-            const world_column *anchor = &out_columns[world_gen_index(&state, index)];
-
-            if (!world_gen_place_near(&state,
-                                      &bounds,
-                                      &active_params,
-                                      out_columns,
-                                      index,
-                                      bounds.radius,
-                                      anchor->x,
-                                      anchor->z,
-                                      &x,
-                                      &z) &&
-                !world_gen_place_clear_random(&state, &bounds, out_columns, index, bounds.radius, &x, &z)) {
-                return world_gen_failure(index);
-            }
+        if (index > 0u && world_gen_roll(&state, active_params.nearby_block_chance)) {
+            const world_block *anchor = &out_blocks[world_gen_index(&state, index)];
 
             if (world_gen_roll(&state, active_params.upward_step_chance)) {
                 const int max_delta = active_params.max_extra_level_delta;
                 const int delta = (max_delta > 0) ? 1 + (int)world_gen_index(&state, (size_t)max_delta) : 0;
 
                 level = anchor->level + delta;
-            } else if (anchor->level > WORLD_PILLAR_MIN_LEVEL) {
-                level = WORLD_PILLAR_MIN_LEVEL + (int)world_gen_index(&state,
-                                                                      (size_t)(anchor->level - WORLD_PILLAR_MIN_LEVEL + 1));
+            } else if (anchor->level > WORLD_BLOCK_MIN_LEVEL) {
+                level = WORLD_BLOCK_MIN_LEVEL + (int)world_gen_index(&state,
+                                                                      (size_t)(anchor->level - WORLD_BLOCK_MIN_LEVEL + 1));
             } else {
                 level = anchor->level;
             }
-        } else {
-            if (!world_gen_place_clear_random(&state, &bounds, out_columns, index, bounds.radius, &x, &z)) {
+
+            if (!world_gen_place_near(&state,
+                                      &bounds,
+                                      &active_params,
+                                      out_blocks,
+                                      index,
+                                      world_gen_block_bottom_y_for_level(level),
+                                      world_block_height_for_level(level),
+                                      bounds.block_half_x,
+                                      bounds.block_half_z,
+                                      anchor->x,
+                                      anchor->z,
+                                      &x,
+                                      &z) &&
+                !world_gen_place_clear_random(&state,
+                                              &bounds,
+                                              out_blocks,
+                                              index,
+                                              world_gen_block_bottom_y_for_level(level),
+                                              world_block_height_for_level(level),
+                                              bounds.block_half_x,
+                                              bounds.block_half_z,
+                                              &x,
+                                              &z)) {
                 return world_gen_failure(index);
             }
-
-            level = WORLD_PILLAR_MIN_LEVEL + (int)world_gen_index(&state,
-                                                                  (size_t)(WORLD_PILLAR_MAX_LEVEL -
-                                                                           WORLD_PILLAR_MIN_LEVEL +
+        } else {
+            level = WORLD_BLOCK_MIN_LEVEL + (int)world_gen_index(&state,
+                                                                  (size_t)(WORLD_BLOCK_MAX_LEVEL -
+                                                                           WORLD_BLOCK_MIN_LEVEL +
                                                                            1));
+
+            if (!world_gen_place_clear_random(&state,
+                                              &bounds,
+                                              out_blocks,
+                                              index,
+                                              world_gen_block_bottom_y_for_level(level),
+                                              world_block_height_for_level(level),
+                                              bounds.block_half_x,
+                                              bounds.block_half_z,
+                                              &x,
+                                              &z)) {
+                return world_gen_failure(index);
+            }
         }
 
-        out_columns[index] = world_column_create(x, z, level, bounds.radius);
+        out_blocks[index] = world_block_create(x, z, level, bounds.block_half_x, bounds.block_half_z);
     }
 
     return world_gen_success(count);

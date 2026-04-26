@@ -10,7 +10,8 @@ typedef struct world_layout_bounds {
     float max_z;
     float min_height;
     float max_height;
-    float radius;
+    float block_half_x;
+    float block_half_z;
 } world_layout_bounds;
 
 typedef struct world_collision_walls {

@@ -52,6 +52,7 @@ static bool world_collision_resolve_player_walls(const world_collision_walls *wa
 static bool world_collision_resolve_player_surface_xz(const world_climbable_surface *surface,
                                                       float player_radius,
                                                       float player_feet_y,
+                                                      float player_top_y,
                                                       float *x,
                                                       float *z)
 {
@@ -62,6 +63,10 @@ static bool world_collision_resolve_player_surface_xz(const world_climbable_surf
     const float distance_squared = (offset_x * offset_x) + (offset_z * offset_z);
 
     if (player_feet_y + WORLD_SUPPORT_HEIGHT_EPSILON >= surface->top_y) {
+        return false;
+    }
+
+    if (player_top_y <= surface->bottom_y + WORLD_SUPPORT_HEIGHT_EPSILON) {
         return false;
     }
 
@@ -121,13 +126,14 @@ static bool world_collision_resolve_player_surface_xz(const world_climbable_surf
     }
 }
 
-void world_collision_resolve_player_surfaces_xz(const world_collision_walls *walls,
-                                                const world_climbable_surface *surfaces,
-                                                size_t surface_count,
-                                                float player_radius,
-                                                float player_feet_y,
-                                                float *x,
-                                                float *z)
+void world_collision_resolve_player_blocks_xz(const world_collision_walls *walls,
+                                              const world_climbable_surface *surfaces,
+                                              size_t surface_count,
+                                              float player_radius,
+                                              float player_feet_y,
+                                              float player_top_y,
+                                              float *x,
+                                              float *z)
 {
     world_collision_walls default_walls;
     const world_collision_walls *active_walls = walls;
@@ -164,6 +170,7 @@ void world_collision_resolve_player_surfaces_xz(const world_collision_walls *wal
                 changed = world_collision_resolve_player_surface_xz(&surfaces[surface_index],
                                                                     player_radius,
                                                                     player_feet_y,
+                                                                    player_top_y,
                                                                     x,
                                                                     z) || changed;
             }
@@ -175,4 +182,54 @@ void world_collision_resolve_player_surfaces_xz(const world_collision_walls *wal
     }
 
     world_collision_resolve_player_walls(active_walls, player_radius, x, z);
+}
+
+float world_collision_find_ceiling_y(const world_climbable_surface *surfaces,
+                                     size_t surface_count,
+                                     float player_radius,
+                                     float player_feet_y,
+                                     float player_top_y,
+                                     float x,
+                                     float z,
+                                     float fallback_ceiling_y)
+{
+    float ceiling_y = fallback_ceiling_y;
+    size_t surface_index;
+
+    if (player_radius < 0.0f) {
+        player_radius = 0.0f;
+    }
+
+    if (surfaces == NULL) {
+        return ceiling_y;
+    }
+
+    for (surface_index = 0u; surface_index < surface_count; ++surface_index) {
+        const world_climbable_surface *surface = &surfaces[surface_index];
+        const float closest_x = world_collision_clamp(x, surface->min_x, surface->max_x);
+        const float closest_z = world_collision_clamp(z, surface->min_z, surface->max_z);
+        const float offset_x = x - closest_x;
+        const float offset_z = z - closest_z;
+        const float distance_squared = (offset_x * offset_x) + (offset_z * offset_z);
+
+        if (surface->bottom_y <= player_feet_y + WORLD_SUPPORT_HEIGHT_EPSILON) {
+            continue;
+        }
+
+        const float block_ceiling_y = surface->bottom_y - WORLD_SUPPORT_HEIGHT_EPSILON;
+
+        if (block_ceiling_y <= player_feet_y) {
+            continue;
+        }
+
+        if (block_ceiling_y > ceiling_y) {
+            continue;
+        }
+
+        if (distance_squared <= (player_radius * player_radius)) {
+            ceiling_y = block_ceiling_y;
+        }
+    }
+
+    return ceiling_y;
 }
