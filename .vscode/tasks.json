@@ -1,0 +1,75 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Configure (debug)",
+      "type": "process",
+      "command": "cmake",
+      "args": ["--preset", "debug"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build (debug)",
+      "type": "process",
+      "command": "cmake",
+      "args": ["--build", "--preset", "debug"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": "Configure (debug)",
+      "dependsOrder": "sequence",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Configure Fresh (debug)",
+      "type": "process",
+      "command": "cmake",
+      "args": ["--fresh", "--preset", "debug"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "hide": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Only (debug)",
+      "type": "process",
+      "command": "cmake",
+      "args": ["--build", "--preset", "debug"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "hide": true,
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Clean Rebuild (debug)",
+      "dependsOn": ["Configure Fresh (debug)", "Build Only (debug)"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test (debug)",
+      "type": "process",
+      "command": "ctest",
+      "args": ["--preset", "debug"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": "Build (debug)",
+      "dependsOrder": "sequence",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}
