@@ -18,9 +18,9 @@ entire project unless a deeper `AGENTS.md` overrides it.
 - `src/main.c` owns raylib setup, rendering, input/camera integration, and HUD
   drawing.
 - `src/game_core/` owns raylib-free gameplay logic and configuration.
-- Climbable geometry in `game_core` is represented as generic top surfaces with
-  X/Z footprints. Pillars are one source of those surfaces, not the only future
-  climbable geometry type.
+- Climbable geometry in `game_core` is currently generated as finite block
+  volumes with X/Z footprints and bottom/top Y bounds. Blocks are converted into
+  generic surfaces/volumes for support and collision checks.
 - `tests/` owns headless regression tests and should link only against
   `game_core`.
 - `assets/` is reserved for runtime assets.
@@ -44,14 +44,15 @@ entire project unless a deeper `AGENTS.md` overrides it.
   it:
   - world definition constants live in `src/game_core/world_config.h`,
   - default bounds are `[-15, 15]` on X/Z,
-  - pillar heights are discrete levels using `WORLD_PILLAR_LEVEL_HEIGHT`,
-  - default generation guarantees one upward jumpable pillar chain,
-  - column radius is `1.0`,
+  - block top heights are discrete levels using `WORLD_BLOCK_LEVEL_HEIGHT`,
+  - default generation guarantees one upward jumpable block chain,
+  - block half extents are `WORLD_BLOCK_HALF_X` and `WORLD_BLOCK_HALF_Z`,
+  - block vertical thickness is `WORLD_BLOCK_HEIGHT_Y`,
   - player collision radius is `0.5`,
   - all four side walls are blocking,
-  - roof underside is high enough above the default max column height for future
-    pillar-top jumping,
-  - column collision uses square footprints, matching rendered cubes.
+  - roof underside is high enough above the default max block height for future
+    block-top jumping,
+  - block collision uses rectangular X/Z footprints plus bottom/top Y bounds.
 
 ## Build And Test
 

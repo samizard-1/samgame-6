@@ -43,8 +43,8 @@ raylib is acquired with CMake `FetchContent` only and pinned to release `5.5`. T
 |   `-- game_core/
 |       |-- player_motion.h
 |       |-- player_motion.c
-|       |-- world_column.h
-|       |-- world_column.c
+|       |-- world_block.h
+|       |-- world_block.c
 |       |-- world_collision.h
 |       |-- world_collision.c
 |       |-- world_config.h
@@ -64,27 +64,29 @@ raylib is acquired with CMake `FetchContent` only and pinned to release `5.5`. T
 
 ## World Geometry
 
-`game_core` treats climbable geometry as top surfaces with X/Z footprints and a
-top height. Generated pillars are converted into surfaces before runtime
-support and collision checks, so future objects, such as moving boxes, can join
-the same path without making the player movement code pillar-specific.
+`game_core` generates finite block volumes with rectangular X/Z footprints and
+bottom/top Y bounds. Blocks are converted into generic surfaces before runtime
+support and collision checks, so future climbable objects can join the same path
+without making player movement depend on a specific geometry type.
 
-Pillars use discrete levels instead of arbitrary continuous heights. A level is
-`WORLD_PILLAR_LEVEL_HEIGHT` units tall, with level 1 reachable from the floor by
-the current jump and level 2 intentionally unreachable from the floor. The
-default generator always creates one upward chain of nearby pillars, then fills
-the remaining pillars using difficulty parameters that tune nearby placement,
-upward-step likelihood, and max extra level delta.
+Blocks use discrete top-height levels instead of arbitrary continuous heights. A
+level is `WORLD_BLOCK_LEVEL_HEIGHT` units tall, with level 1 reachable from the
+floor by the current jump and level 2 intentionally unreachable from the floor.
+The default generator creates one upward jumpable block chain, then fills the
+remaining blocks using difficulty parameters that tune nearby placement,
+upward-step likelihood, and max extra level delta. Runtime collision treats
+blocks as volumes: sides block the player when vertical spans overlap, tops can
+support the player, and undersides act as ceilings during jumps.
 
 ## Starter Scope
 
-This starter keeps the official example's first-person camera feel, static scene room/ground, cursor capture, jumping, and generated columns. The playable area is enclosed by four blocking walls and a roof so the player cannot leave the room through the sides or top.
+This starter keeps the official example's first-person camera feel, static scene room/ground, cursor capture, jumping, and generated blocks. The playable area is enclosed by four blocking walls and a roof so the player cannot leave the room through the sides or top.
 
 World dimensions live in `src/game_core/world_config.h`. Use that file for room
-bounds, wall thickness, roof height, roof thickness, pillar level defaults,
-column radius, and player collision radius so generation, rendering, collision,
+bounds, wall thickness, roof height, roof thickness, block level defaults,
+block extents, and player collision radius so generation, rendering, collision,
 tests, and documentation stay aligned.
 
-App startup constants such as screen size, target FPS, and startup column count
+App startup constants such as screen size, target FPS, and startup block count
 live in `src/app_config.h` so executable policy stays out of the raylib-free
 core.
